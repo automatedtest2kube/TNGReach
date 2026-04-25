@@ -116,6 +116,16 @@ export function CameraCapture({
 
   return (
     <div className="space-y-3">
+      {/* IC scanning tips — shown above the viewfinder for rect/card scans only */}
+      {!isCircle && !captured && facingMode === "environment" && (
+        <div className="flex flex-col gap-0.5 rounded-xl bg-slate-800/90 px-3 py-2 text-[10px] leading-snug text-white/90">
+          <span className="mb-0.5 font-semibold text-brand-blue">📋 For best results</span>
+          <span>• Keep card flat — no tilt or rotation</span>
+          <span>• Card should fill most of the frame</span>
+          <span>• Ensure text is sharp and well-lit</span>
+        </div>
+      )}
+
       <div className={containerCls} style={!isCircle ? { aspectRatio: aspect } : undefined}>
         {captured ? (
           <img
@@ -169,15 +179,6 @@ export function CameraCapture({
             {hint && ready && (
               <div className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-[11px] font-medium text-white/85">
                 {hint}
-              </div>
-            )}
-            {/* IC alignment tips — shown when not a selfie and camera is ready */}
-            {facingMode === "environment" && ready && (
-              <div className="pointer-events-none absolute inset-x-2 top-2 flex flex-col gap-0.5 rounded-xl bg-black/50 px-3 py-2 text-[10px] leading-tight text-white/90">
-                <span className="font-semibold text-brand-blue">📋 Scanning tips</span>
-                <span>• Hold card flat — no tilt or rotation</span>
-                <span>• Card should fill most of the frame</span>
-                <span>• Keep text sharp and well-lit</span>
               </div>
             )}
           </>
