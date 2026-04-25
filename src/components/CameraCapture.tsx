@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Props {
   facingMode?: "user" | "environment";
@@ -8,17 +8,7 @@ interface Props {
   captured: string | null;
   onRetake: () => void;
   hint?: string;
-  overlay?: ReactNode;
-}
-
-type NativeCameraEvent = CustomEvent<{ dataUrl?: string; error?: string }>;
-
-declare global {
-  interface Window {
-    ReactNativeWebView?: {
-      postMessage: (message: string) => void;
-    };
-  }
+  allowUpload?: boolean; // show "Upload from device" option
 }
 
 /**
@@ -33,17 +23,13 @@ export function CameraCapture({
   captured,
   onRetake,
   hint,
-  overlay,
+  allowUpload = false,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const nativeRequestedRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
-  const [useFileFallback, setUseFileFallback] = useState(false);
-  const nativeBridgeAvailable =
-    typeof window !== "undefined" && typeof window.ReactNativeWebView?.postMessage === "function";
 
   useEffect(() => {
     let cancelled = false;
@@ -55,23 +41,10 @@ export function CameraCapture({
       return;
     }
 
-    if (nativeBridgeAvailable) {
-      // In app wrapper mode, always use native full-screen camera flow.
-      setUseFileFallback(false);
-      setReady(false);
-      if (!nativeRequestedRef.current) {
-        nativeRequestedRef.current = true;
-        setError("Opening native camera...");
-        requestNativeCamera();
-      }
-      return;
-    }
-
     const start = async () => {
       try {
         if (!navigator.mediaDevices?.getUserMedia) {
-          setUseFileFallback(true);
-          setError("Live camera is unavailable. Use camera upload below.");
+          setError("Camera not supported in this browser.");
           return;
         }
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -91,9 +64,8 @@ export function CameraCapture({
       } catch (e) {
         const msg =
           e instanceof Error && e.name === "NotAllowedError"
-            ? "Camera permission denied. Use camera upload below or allow access."
+            ? "Camera permission denied. Please allow access in your browser."
             : "Couldn't open camera. Try another device or browser.";
-        setUseFileFallback(true);
         setError(msg);
       }
     };
@@ -104,30 +76,7 @@ export function CameraCapture({
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     };
-  }, [facingMode, captured, nativeBridgeAvailable]);
-
-  useEffect(() => {
-    const onNativeResult = (event: Event) => {
-      const customEvent = event as NativeCameraEvent;
-      const dataUrl = customEvent.detail?.dataUrl;
-      if (typeof dataUrl === "string" && dataUrl.length > 0) {
-        setError(null);
-        onCapture(dataUrl);
-      }
-    };
-
-    const onNativeError = (event: Event) => {
-      const customEvent = event as NativeCameraEvent;
-      setError(customEvent.detail?.error ?? "Unable to open native camera.");
-    };
-
-    window.addEventListener("native-camera-result", onNativeResult as EventListener);
-    window.addEventListener("native-camera-error", onNativeError as EventListener);
-    return () => {
-      window.removeEventListener("native-camera-result", onNativeResult as EventListener);
-      window.removeEventListener("native-camera-error", onNativeError as EventListener);
-    };
-  }, [onCapture]);
+  }, [facingMode, captured]);
 
   const snap = () => {
     const video = videoRef.current;
@@ -147,59 +96,18 @@ export function CameraCapture({
     ctx.drawImage(video, 0, 0, w, h);
     onCapture(canvas.toDataURL("image/jpeg", 0.9));
   };
-  const pickFromFile = () => {
-    const input = fileInputRef.current;
-    if (!input) return;
-    try {
-      // Some engines support this and it is less likely to be blocked.
-      if (typeof input.showPicker === "function") {
-        input.showPicker();
-        return;
-      }
-    } catch {
-      // Fall through to click below.
-    }
-    input.click();
-  };
 
-  const onFilePicked = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result;
-      if (typeof result === "string") {
-        onCapture(result);
-      }
+    reader.onload = (ev) => {
+      const result = ev.target?.result;
+      if (typeof result === "string") onCapture(result);
     };
     reader.readAsDataURL(file);
-    // allow selecting the same file/camera capture again
-    event.target.value = "";
+    e.target.value = "";
   };
-
-  const requestNativeCamera = () => {
-    if (!nativeBridgeAvailable) return;
-    const payload = {
-      type: "OPEN_NATIVE_CAMERA",
-      payload: { facingMode },
-    };
-    window.ReactNativeWebView?.postMessage(JSON.stringify(payload));
-  };
-
-  const retakeCaptured = () => {
-    onRetake();
-    if (nativeBridgeAvailable) {
-      nativeRequestedRef.current = true;
-      setError("Opening native camera...");
-      requestNativeCamera();
-    }
-  };
-
-  useEffect(() => {
-    if (captured) {
-      nativeRequestedRef.current = false;
-    }
-  }, [captured]);
 
   const isCircle = shape === "circle";
   const containerCls = isCircle
@@ -263,42 +171,36 @@ export function CameraCapture({
                 {hint}
               </div>
             )}
-            {overlay && !captured && (
-              <div className="pointer-events-none absolute inset-x-3 top-3 z-20">
-                {overlay}
-              </div>
-            )}
           </>
         )}
       </div>
 
-      {nativeBridgeAvailable && !captured && !ready && !!error ? (
-        <div className="flex w-full items-center justify-center rounded-2xl border-2 border-brand-purple/20 bg-white/70 py-2.5 text-[11px] font-semibold text-brand-purple/80">
-          Opening native camera...
-        </div>
-      ) : useFileFallback && !captured ? (
-        <label className="relative flex w-full cursor-pointer items-center justify-center gap-2 rounded-2xl border-2 border-brand-purple/20 bg-white/80 py-2.5 text-[12px] font-bold text-brand-purple transition hover:bg-white">
-          <span>📷</span>
-          Open camera / gallery
+      <button
+        onClick={captured ? onRetake : snap}
+        disabled={!captured && (!ready || !!error)}
+        className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-brand-purple/20 bg-white/80 py-2.5 text-[12px] font-bold text-brand-purple transition hover:bg-white disabled:opacity-50"
+      >
+        <span>{captured ? "🔄" : facingMode === "user" ? "📸" : "📷"}</span>
+        {captured ? "Retake" : facingMode === "user" ? "Take selfie" : "Capture now"}
+      </button>
+
+      {allowUpload && !captured && (
+        <>
           <input
             ref={fileInputRef}
             type="file"
             accept="image/*"
-            capture={facingMode}
-            onChange={onFilePicked}
-            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            className="hidden"
+            onChange={handleFileUpload}
           />
-        </label>
-      ) : (
-        <button
-          type="button"
-          onClick={captured ? retakeCaptured : snap}
-          disabled={!captured && !ready}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-brand-purple/20 bg-white/80 py-2.5 text-[12px] font-bold text-brand-purple transition hover:bg-white disabled:opacity-50"
-        >
-          <span>{captured ? "🔄" : facingMode === "user" ? "📸" : "📷"}</span>
-          {captured ? "Retake" : facingMode === "user" ? "Take selfie" : "Capture now"}
-        </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-brand-purple/20 bg-white/60 py-2.5 text-[12px] font-bold text-brand-purple/80 transition hover:bg-white/80"
+          >
+            <span>📁</span>
+            Upload from device
+          </button>
+        </>
       )}
     </div>
   );

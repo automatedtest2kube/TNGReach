@@ -42,8 +42,13 @@ export function RegistrationFlow({
   const [idType, setIdType] = useState<IdType>("ic");
   const [icImage, setIcImage] = useState<string | null>(null);
   const [selfieImage, setSelfieImage] = useState<string | null>(null);
-  const [icNo, setIcNo] = useState("880123-14-5678");
-  const [fullName, setFullName] = useState("Nurul Aisyah binti Rahman");
+  const [icNo, setIcNo] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [address, setAddress] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [processingMessage, setProcessingMessage] = useState<string | null>(null);
   const [showSuccess, setShowSuccess] = useState(false);
   const [authMode, setAuthMode] = useState<"none" | "signin" | "signup">("none");
@@ -52,6 +57,59 @@ export function RegistrationFlow({
   const [authConfirmPassword, setAuthConfirmPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+
+  const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+
+  const handleIcCapture = async (dataUrl: string) => {
+    setIcImage(dataUrl);
+    setScanning(true);
+    setScanError(null);
+    setIcNo("");
+    setFullName("");
+    setAddress("");
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/ekyc/scan-ic`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageRef: dataUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setScanError(data?.message ?? "Scan failed. Please retake the photo.");
+        return;
+      }
+      const { extracted } = data;
+      setIcNo(extracted?.icNumber ?? "");
+      setFullName(extracted?.fullName ?? "");
+      setAddress(extracted?.address ?? "");
+    } catch {
+      setScanError("Could not reach the server. Check your connection.");
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleConfirm = async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/ekyc/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ icNumber: icNo.replace(/[-\s]/g, ""), fullName, address }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSaveError(data?.message ?? "Could not save your profile. Please try again.");
+        return;
+      }
+      setStep((s) => s + 1);
+    } catch {
+      setSaveError("Could not reach the server. Check your connection.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const TOTAL = 6;
   const next = async () => {
@@ -157,16 +215,16 @@ export function RegistrationFlow({
     (step === 1 && !lang) ||
     (step === 2 && !accountType) ||
     (step === 3 && !icImage) ||
-    (step === 4 && (!icNo.trim() || !fullName.trim())) ||
+    (step === 4 && (scanning || saving || !icNo.trim() || !fullName.trim() || !address.trim())) ||
     (step === 5 && !selfieImage);
 
   const ctaLabel = [
     authMode === "signin" ? "Sign in" : authMode === "signup" ? "Create account" : "Let's go",
     "Continue",
     "Continue",
-    icImage ? "Looks Good" : "Capture ID First",
-    "Confirm Details",
-    selfieImage ? "Finish Setup" : "Take Selfie First",
+    icImage ? "Looks good" : "Capture ID first",
+    saving ? "Saving…" : "Confirm details",
+    selfieImage ? "Finish setup" : "Take selfie first",
   ][step];
 
   return (
@@ -253,13 +311,14 @@ export function RegistrationFlow({
                 className="px-1"
               >
                 <h1 className="text-reach-hero text-center text-3xl font-extrabold leading-[1.1] tracking-tight">
-                  Reach Further,<br /> Live Richer
+                  Reach Further,
+                  <br /> Live Richer
                   <br />
-                
                 </h1>
               </motion.div>
               <p className="max-w-xs text-[13px] leading-relaxed text-foreground/65">
-                A smart wallet for payments, savings and government aid - all in one place.             </p>
+                A smart wallet for payments, savings and government aid - all in one place.{" "}
+              </p>
               <div className="mt-1 flex items-center gap-4 text-[11px] font-semibold text-foreground/60">
                 <span className="flex items-center gap-1">✨ Simple</span>
                 <span className="h-1 w-1 rounded-full bg-foreground/30" />
@@ -359,7 +418,6 @@ export function RegistrationFlow({
                       <span className="text-2xl">{l.flag}</span>
                       <div className="flex-1">
                         <div className="text-[14px] font-bold text-foreground">{l.native}</div>
-                       
                       </div>
                       {active && (
                         <span className="animate-pop flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-brand-blue to-brand-purple text-[11px] text-white shadow-md">
@@ -462,14 +520,16 @@ export function RegistrationFlow({
                 shape="rect"
                 aspect="1.6 / 1"
                 captured={icImage}
-                onCapture={(dataUrl) => {
-                  setIcImage(dataUrl);
-                  showProcessingThen("AI is extracting your ID details...", () => {
-                    setStep((s) => (s === 3 ? Math.min(s + 1, TOTAL - 1) : s));
-                  });
+                onCapture={handleIcCapture}
+                onRetake={() => {
+                  setIcImage(null);
+                  setIcNo("");
+                  setFullName("");
+                  setAddress("");
+                  setScanError(null);
                 }}
-                onRetake={() => setIcImage(null)}
                 hint={`Place ${idType === "ic" ? "IC" : "passport"} inside the frame`}
+                allowUpload
                 overlay={
                   <div className="rounded-xl border border-white/25 bg-black/35 p-2.5 backdrop-blur-sm">
                     <div className="flex items-start gap-2.5">
@@ -493,7 +553,7 @@ export function RegistrationFlow({
           {step === 4 && (
             <div className="space-y-3">
               <label className="block text-[11px] font-bold uppercase tracking-[0.15em] text-brand-purple/70">
-               Registration Details
+                Registration Details
               </label>
 
               {icImage && (
@@ -503,6 +563,25 @@ export function RegistrationFlow({
                     alt="Captured ID"
                     className="h-36 w-full rounded-xl object-cover ring-1 ring-brand-purple/20"
                   />
+                  <div className="mt-2 flex items-center gap-2">
+                    {scanning ? (
+                      <>
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand-purple border-t-transparent" />
+                        <div className="text-[12px] font-bold text-brand-purple">Scanning…</div>
+                      </>
+                    ) : scanError ? (
+                      <div className="text-[12px] font-bold text-red-500">{scanError}</div>
+                    ) : (
+                      <>
+                        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-brand-blue to-brand-purple text-[10px] text-white">
+                          ✓
+                        </span>
+                        <div className="text-[12px] font-bold text-foreground">
+                          Scan complete — confirm below
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -526,10 +605,27 @@ export function RegistrationFlow({
                 />
               </div>
 
+              <div className="space-y-2">
+                <FieldLabel>Address</FieldLabel>
+                <textarea
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  rows={3}
+                  className="w-full resize-none rounded-xl border-2 border-white/70 bg-white/80 px-3 py-2.5 text-[13px] font-medium leading-snug text-foreground outline-none transition focus:border-brand-purple focus:bg-white focus:ring-4 focus:ring-brand-purple/20"
+                  placeholder="Residential address"
+                />
+              </div>
+
               <p className="flex items-center gap-1.5 px-1 text-[11px] text-foreground/55">
                 <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-brand-purple" />
                 Ensure details are correct before proceeding.
               </p>
+
+              {saveError && (
+                <p className="rounded-xl bg-red-50 px-3 py-2 text-[12px] font-medium text-red-500">
+                  {saveError}
+                </p>
+              )}
             </div>
           )}
 
@@ -565,7 +661,7 @@ export function RegistrationFlow({
       {/* CTA */}
       <div className={`relative z-10 px-5 pb-5 pt-4 ${step === 0 ? "-mt-4" : ""}`}>
         <button
-          onClick={next}
+          onClick={step === 4 ? handleConfirm : next}
           disabled={ctaDisabled || !!processingMessage || showSuccess}
           className="group relative w-full overflow-hidden rounded-2xl bg-[linear-gradient(135deg,var(--brand-blue),var(--brand-purple)_45%,var(--brand-orange))] bg-[length:200%_auto] px-6 py-4 text-base font-bold text-white shadow-[0_15px_35px_-10px_rgba(120,80,220,0.7),inset_0_1px_0_0_rgba(255,255,255,0.4)] transition-transform duration-200 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none [animation:gradientShift_3s_ease_infinite,ringPulse_2s_ease-in-out_infinite] disabled:[animation:none]"
         >
@@ -580,7 +676,6 @@ export function RegistrationFlow({
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
-          
             >
               <path d="M5 12h14" />
               <path d="m12 5 7 7-7 7" />
@@ -608,7 +703,6 @@ export function RegistrationFlow({
                 Sign up
               </button>
             </p>
-            
           </div>
         )}
       </div>
@@ -633,12 +727,11 @@ export function RegistrationFlow({
               key={i}
               className="absolute inline-block h-2 w-2 animate-bounce rounded-full"
               style={{
-                left: `${6 + (i * 4.2) % 88}%`,
-                top: `${8 + (i * 7.7) % 76}%`,
+                left: `${6 + ((i * 4.2) % 88)}%`,
+                top: `${8 + ((i * 7.7) % 76)}%`,
                 animationDelay: `${(i % 8) * 0.08}s`,
                 animationDuration: `${1.2 + (i % 4) * 0.2}s`,
-                background:
-                  ["#58E6D9", "#5896FD", "#806EF8", "#B0A4FF", "#FFD166"][i % 5],
+                background: ["#58E6D9", "#5896FD", "#806EF8", "#B0A4FF", "#FFD166"][i % 5],
               }}
             />
           ))}
