@@ -23,13 +23,14 @@ import {
   Mic,
   Users,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useAccessibility } from "@/context/accessibility-context";
-import { FALLBACK_USER_PROFILE, fetchUserProfile } from "@/lib/user-profile";
+import { useWalletData } from "@/hooks/use-wallet-data";
 
 interface HomeScreenProps {
   onNavigate: (screen: string) => void;
+  activeUserId?: number;
 }
 
 const homeStagger = {
@@ -46,32 +47,27 @@ const homeItem = {
   },
 };
 
-export function HomeScreen({ onNavigate }: HomeScreenProps) {
+export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
   const [showBalance, setShowBalance] = useState(true);
-  const [profile, setProfile] = useState(FALLBACK_USER_PROFILE);
   const { isElderlyMode, t } = useAccessibility();
+  const { summary } = useWalletData(activeUserId);
+  const userName = summary?.user.fullName?.split(" ")[0] || "Sarah";
+  const walletCurrency = summary?.wallet?.currency || "MYR";
+  const walletBalance = Number(summary?.wallet?.balance ?? 2458.5);
+  const recentTx = (summary?.transactions ?? []).slice(0, 5).map((tx, idx) => ({
+    id: tx.transactionId ?? idx + 1,
+    name: tx.description || tx.transactionType,
+    time: new Date(tx.transactionDate).toLocaleDateString(),
+    amount: Number(tx.amount),
+  }));
 
-  useEffect(() => {
-    let alive = true;
-    fetchUserProfile()
-      .then((data) => {
-        if (alive) setProfile(data);
-      })
-      .catch(() => {
-        // Keep fallback values when mock/API is unavailable.
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  const balanceText = useMemo(() => {
-    if (!showBalance) return "RM ••••••";
-    return `RM ${profile.walletBalance.toLocaleString("en-MY", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })}`;
-  }, [profile.walletBalance, showBalance]);
+  const balanceText = useMemo(
+    () =>
+      showBalance
+        ? `${walletCurrency} ${walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : `${walletCurrency} ••••••`,
+    [showBalance, walletBalance, walletCurrency],
+  );
 
   // =============================================================
   // ELDERLY MODE: completely simplified layout
@@ -114,11 +110,14 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
       },
     ];
 
-    const simpleTx = [
-      { id: 1, name: "Grocery Store", time: "Today", amount: -45.5 },
-      { id: 2, name: "Top Up Wallet", time: "Yesterday", amount: 200.0 },
-      { id: 3, name: "Coffee Shop", time: "Yesterday", amount: -8.9 },
-    ];
+    const simpleTx =
+      recentTx.length > 0
+        ? recentTx.slice(0, 3)
+        : [
+            { id: 1, name: "Grocery Store", time: "Today", amount: -45.5 },
+            { id: 2, name: "Top Up Wallet", time: "Yesterday", amount: 200.0 },
+            { id: 3, name: "Coffee Shop", time: "Yesterday", amount: -8.9 },
+          ];
 
     return (
       <div className="flex-1 overflow-auto pb-32">
@@ -138,7 +137,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
         <div className="px-5 pt-5 pb-3">
           <p className="text-xl text-[#C9D1D9]">Hello,</p>
           <h1 className="mt-1 text-4xl font-extrabold tracking-tight text-foreground">
-            {profile.preferredName}
+            {userName}
           </h1>
         </div>
 
@@ -355,13 +354,25 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
     { icon: ParkingIcon, label: t("parking"), screen: "parking", color: "#AECDFF" },
   ];
 
-  const transactions = [
-    { id: 1, icon: ShoppingBag, name: "Grocery Store", time: "Today, 2:30 PM", amount: -45.5 },
-    { id: 2, icon: Coffee, name: "Coffee Shop", time: "Today, 10:15 AM", amount: -8.9 },
-    { id: 3, icon: Plus, name: "Top Up", time: "Yesterday", amount: 200.0 },
-    { id: 4, icon: Utensils, name: "Restaurant", time: "Yesterday", amount: -32.0 },
-    { id: 5, icon: Car, name: "Fuel Station", time: "Mar 18", amount: -55.0 },
-  ];
+  const transactions =
+    recentTx.length > 0
+      ? recentTx.map((tx) => ({
+          ...tx,
+          icon: tx.amount > 0 ? Plus : Send,
+        }))
+      : [
+          {
+            id: 1,
+            icon: ShoppingBag,
+            name: "Grocery Store",
+            time: "Today, 2:30 PM",
+            amount: -45.5,
+          },
+          { id: 2, icon: Coffee, name: "Coffee Shop", time: "Today, 10:15 AM", amount: -8.9 },
+          { id: 3, icon: Plus, name: "Top Up", time: "Yesterday", amount: 200.0 },
+          { id: 4, icon: Utensils, name: "Restaurant", time: "Yesterday", amount: -32.0 },
+          { id: 5, icon: Car, name: "Fuel Station", time: "Mar 18", amount: -55.0 },
+        ];
 
   const monthlyData = [
     { month: "Jan", amount: 980, isActive: false },
@@ -390,12 +401,15 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
         />
         <p className="relative text-base text-foreground/55">{t("welcome")},</p>
         <h1 className="relative text-3xl font-extrabold tracking-tight text-foreground">
-          {profile.preferredName}
+          {userName}
         </h1>
       </motion.div>
 
       {/* Balance Card */}
-      <motion.div variants={homeItem} className="card-sheen card-gradient-glow relative mb-6 overflow-hidden rounded-[1.75rem] p-6 shadow-glow">
+      <motion.div
+        variants={homeItem}
+        className="card-sheen card-gradient-glow relative mb-6 overflow-hidden rounded-[1.75rem] p-6 shadow-glow"
+      >
         <div className="relative z-10 flex items-center justify-between mb-4">
           <p className="text-sm font-medium text-white/90">{t("walletBalance")}</p>
           <button
@@ -404,7 +418,11 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
             className="rounded-full bg-white/20 p-2.5 ring-1 ring-white/15 backdrop-blur-sm transition active:scale-90 active:bg-white/30"
             aria-label={showBalance ? "Hide balance" : "Show balance"}
           >
-            {showBalance ? <Eye className="h-5 w-5 text-white" /> : <EyeOff className="h-5 w-5 text-white" />}
+            {showBalance ? (
+              <Eye className="h-5 w-5 text-white" />
+            ) : (
+              <EyeOff className="h-5 w-5 text-white" />
+            )}
           </button>
         </div>
         <p className="relative z-10 text-4xl font-bold tracking-tight text-white drop-shadow-sm">
@@ -440,7 +458,9 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
               >
                 <action.icon className="h-6 w-6" style={{ color: action.color }} />
               </div>
-              <span className="text-center text-xs font-semibold text-foreground">{action.label}</span>
+              <span className="text-center text-xs font-semibold text-foreground">
+                {action.label}
+              </span>
             </motion.button>
           ))}
         </div>
@@ -516,7 +536,9 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
                     delay: 0.06 * i,
                   }}
                 />
-                <span className="text-[10px] font-semibold text-foreground/45">RM {data.amount}</span>
+                <span className="text-[10px] font-semibold text-foreground/45">
+                  RM {data.amount}
+                </span>
               </div>
             ))}
           </div>
@@ -525,9 +547,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
               <span
                 key={data.month}
                 className={`flex-1 text-center text-xs font-semibold ${
-                  data.isActive
-                    ? "text-brand-blue"
-                    : "text-foreground/50"
+                  data.isActive ? "text-brand-blue" : "text-foreground/50"
                 }`}
               >
                 {data.month}
@@ -537,7 +557,8 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
           <div className="mt-3 flex items-center justify-center gap-2 border-t border-brand-purple/15 pt-3">
             <TrendingUp className="h-4 w-4 text-destructive" />
             <span className="text-sm text-foreground/60">
-              <span className="font-semibold text-destructive">+14.8%</span> vs last month (RM 1,089)
+              <span className="font-semibold text-destructive">+14.8%</span> vs last month (RM
+              1,089)
             </span>
           </div>
         </div>
@@ -570,16 +591,22 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
               <div
                 className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl"
                 style={{
-                  background: tx.amount > 0 ? "rgba(63, 185, 80, 0.15)" : "rgba(88, 150, 253, 0.15)",
+                  background:
+                    tx.amount > 0 ? "rgba(63, 185, 80, 0.15)" : "rgba(88, 150, 253, 0.15)",
                 }}
               >
-                <tx.icon className="h-5 w-5" style={{ color: tx.amount > 0 ? "#3FB950" : "#5896FD" }} />
+                <tx.icon
+                  className="h-5 w-5"
+                  style={{ color: tx.amount > 0 ? "#3FB950" : "#5896FD" }}
+                />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium text-foreground">{tx.name}</p>
                 <p className="text-sm text-foreground/55">{tx.time}</p>
               </div>
-              <p className={`font-semibold ${tx.amount > 0 ? "text-[#3FB950]" : "text-foreground"}`}>
+              <p
+                className={`font-semibold ${tx.amount > 0 ? "text-[#3FB950]" : "text-foreground"}`}
+              >
                 {tx.amount > 0 ? "+" : ""}
                 RM {Math.abs(tx.amount).toFixed(2)}
               </p>

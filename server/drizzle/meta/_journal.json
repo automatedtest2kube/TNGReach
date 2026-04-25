@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "mysql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "5",
+      "when": 1777103584760,
+      "tag": "0000_woozy_harpoon",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1777111740558,
+      "tag": "0001_tense_anthem",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1777117840435,
+      "tag": "0002_pretty_sunfire",
+      "breakpoints": true
+    }
+  ]
+}

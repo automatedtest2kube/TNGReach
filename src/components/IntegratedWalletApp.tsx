@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { RegistrationFlow } from "@/components/RegistrationFlow";
+import type { RegistrationCompletePayload } from "@/components/RegistrationFlow";
 import { SplashScreen } from "@/components/onboarding/SplashScreen";
 import { HomeScreen } from "@/components/screens/home-screen";
 import { SendMoneyScreen } from "@/components/screens/send-money-screen";
@@ -21,6 +22,8 @@ import { Bell, Settings } from "lucide-react";
 import { Mascot } from "@/components/Mascot";
 import { useAccessibility } from "@/context/accessibility-context";
 import { FALLBACK_USER_PROFILE, fetchUserProfile } from "@/lib/user-profile";
+import { useBackendHealth } from "@/hooks/use-backend-health";
+import { DEMO_USER_ID } from "@/lib/api/wallet";
 
 type Phase = "splash" | "registration" | "main";
 
@@ -30,7 +33,24 @@ export function IntegratedWalletApp() {
   const [isAIOpen, setIsAIOpen] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
   const [profile, setProfile] = useState(FALLBACK_USER_PROFILE);
+  const [activeUserId, setActiveUserId] = useState<number>(DEMO_USER_ID);
   const { isElderlyMode, chatBubbleEnabled } = useAccessibility();
+  const { loading: backendLoading, data: backendHealth, error: backendError } = useBackendHealth();
+
+  useEffect(() => {
+    const raw = window.localStorage.getItem("tngreach.activeUserId");
+    if (!raw) {
+      return;
+    }
+    const id = Number(raw);
+    if (Number.isFinite(id) && id > 0) {
+      setActiveUserId(id);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("tngreach.activeUserId", String(activeUserId));
+  }, [activeUserId]);
 
   useEffect(() => {
     const timer = setTimeout(() => setPhase("registration"), 3200);
@@ -62,8 +82,17 @@ export function IntegratedWalletApp() {
     };
   }, []);
 
+  const handleRegistrationComplete = (payload: RegistrationCompletePayload) => {
+    if (payload.userId) {
+      setActiveUserId(payload.userId);
+    } else if (payload.skipped) {
+      setActiveUserId(DEMO_USER_ID);
+    }
+    setPhase("main");
+  };
+
   if (phase === "splash") return <SplashScreen />;
-  if (phase === "registration") return <RegistrationFlow onComplete={() => setPhase("main")} />;
+  if (phase === "registration") return <RegistrationFlow onComplete={handleRegistrationComplete} />;
 
   const handleNavigate = (screen: string) => {
     setCurrentScreen(screen === "crowdfunding" ? "community-support" : screen);
@@ -73,6 +102,14 @@ export function IntegratedWalletApp() {
   const showBottomNav = ["home", "history", "ai-insights", "profile"].includes(currentScreen);
   const showHeader = currentScreen === "home";
   const showChatBubble = chatBubbleEnabled && !isAIOpen && (!showHeader || !headerVisible);
+  const backendIsUp = Boolean(backendHealth?.ok && backendHealth?.db === "ok");
+  const backendLabel = backendIsUp
+    ? "Backend live"
+    : backendLoading
+      ? "Checking backend..."
+      : backendError
+        ? "Backend offline"
+        : "Backend not ready";
 
   return (
     <div className="wallet-theme relative isolate mx-auto flex min-h-screen max-w-lg flex-col overflow-hidden bg-[linear-gradient(100deg,oklch(0.985_0.012_280)_0%,oklch(0.95_0.04_280)_50%,oklch(0.96_0.045_300)_100%)] pt-[max(env(safe-area-inset-top),0.5rem)]">
@@ -148,7 +185,28 @@ export function IntegratedWalletApp() {
           </div>
         </header>
       )}
-      {currentScreen === "home" && <HomeScreen onNavigate={handleNavigate} />}
+      {showHeader && (
+        <div className="px-5 pb-2">
+          <div
+            className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold"
+            style={{
+              color: backendIsUp ? "#166534" : "#9A3412",
+              background: backendIsUp ? "rgba(34,197,94,0.12)" : "rgba(251,146,60,0.15)",
+              borderColor: backendIsUp ? "rgba(34,197,94,0.35)" : "rgba(251,146,60,0.35)",
+            }}
+          >
+            <span
+              className="h-2 w-2 rounded-full"
+              style={{ background: backendIsUp ? "#22C55E" : "#FB923C" }}
+              aria-hidden
+            />
+            {backendLabel}
+          </div>
+        </div>
+      )}
+      {currentScreen === "home" && (
+        <HomeScreen onNavigate={handleNavigate} activeUserId={activeUserId} />
+      )}
       {currentScreen === "send" && <SendMoneyScreen onBack={handleBack} />}
       {currentScreen === "scan" && (
         <ScanPayScreen onBack={handleBack} onNavigate={handleNavigate} />
@@ -157,7 +215,9 @@ export function IntegratedWalletApp() {
         <ScanPayScreen onBack={() => handleNavigate("family")} onNavigate={handleNavigate} scanMode="family" />
       )}
       {currentScreen === "bills" && <BillsScreen onBack={handleBack} />}
-      {currentScreen === "history" && <HistoryScreen onBack={handleBack} />}
+      {currentScreen === "history" && (
+        <HistoryScreen onBack={handleBack} activeUserId={activeUserId} />
+      )}
       {currentScreen === "profile" && (
         <ProfileScreen onBack={handleBack} onNavigate={handleNavigate} />
       )}
@@ -169,9 +229,7 @@ export function IntegratedWalletApp() {
         <AIVoiceScreen onBack={handleBack} onNavigate={handleNavigate} />
       )}
       {currentScreen === "reminders" && <RemindersScreen onBack={handleBack} />}
-      {currentScreen === "community-support" && (
-        <CrowdfundingHubScreen onBack={handleBack} />
-      )}
+      {currentScreen === "community-support" && <CrowdfundingHubScreen onBack={handleBack} />}
       {currentScreen === "trust-score" && <TrustScoreScreen onBack={handleBack} />}
       {currentScreen === "family" && <FamilyScreen onBack={handleBack} onNavigate={handleNavigate} />}
       {showBottomNav && (
