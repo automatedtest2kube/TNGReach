@@ -33,6 +33,7 @@ const pageItem = {
 
 interface HistoryScreenProps {
   onBack: () => void;
+  activeUserId?: number;
 }
 
 const transactions = [
@@ -139,10 +140,10 @@ const transactions = [
 
 const filters = ["All", "Income", "Expense", "Transfer", "Bills"];
 
-export function HistoryScreen({ onBack }: HistoryScreenProps) {
+export function HistoryScreen({ onBack, activeUserId }: HistoryScreenProps) {
   const [activeFilter, setActiveFilter] = useState("All");
   const { elderlyMode, t } = useAccessibility();
-  const { summary } = useWalletData();
+  const { summary } = useWalletData(activeUserId);
 
   const backendTransactions =
     summary?.transactions.map((tx) => {

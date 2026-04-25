@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { RegistrationFlow } from "@/components/RegistrationFlow";
+import type { RegistrationCompletePayload } from "@/components/RegistrationFlow";
 import { SplashScreen } from "@/components/onboarding/SplashScreen";
 import { HomeScreen } from "@/components/screens/home-screen";
 import { SendMoneyScreen } from "@/components/screens/send-money-screen";
@@ -21,6 +22,7 @@ import { Bell, Settings } from "lucide-react";
 import { Mascot } from "@/components/Mascot";
 import { useAccessibility } from "@/context/accessibility-context";
 import { useBackendHealth } from "@/hooks/use-backend-health";
+import { DEMO_USER_ID } from "@/lib/api/wallet";
 
 type Phase = "splash" | "registration" | "main";
 
@@ -29,8 +31,24 @@ export function IntegratedWalletApp() {
   const [currentScreen, setCurrentScreen] = useState("home");
   const [isAIOpen, setIsAIOpen] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
+  const [activeUserId, setActiveUserId] = useState<number>(DEMO_USER_ID);
   const { isElderlyMode, chatBubbleEnabled } = useAccessibility();
   const { loading: backendLoading, data: backendHealth, error: backendError } = useBackendHealth();
+
+  useEffect(() => {
+    const raw = window.localStorage.getItem("tngreach.activeUserId");
+    if (!raw) {
+      return;
+    }
+    const id = Number(raw);
+    if (Number.isFinite(id) && id > 0) {
+      setActiveUserId(id);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("tngreach.activeUserId", String(activeUserId));
+  }, [activeUserId]);
 
   useEffect(() => {
     const timer = setTimeout(() => setPhase("registration"), 3200);
@@ -48,8 +66,17 @@ export function IntegratedWalletApp() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, [phase, currentScreen]);
 
+  const handleRegistrationComplete = (payload: RegistrationCompletePayload) => {
+    if (payload.userId) {
+      setActiveUserId(payload.userId);
+    } else if (payload.skipped) {
+      setActiveUserId(DEMO_USER_ID);
+    }
+    setPhase("main");
+  };
+
   if (phase === "splash") return <SplashScreen />;
-  if (phase === "registration") return <RegistrationFlow onComplete={() => setPhase("main")} />;
+  if (phase === "registration") return <RegistrationFlow onComplete={handleRegistrationComplete} />;
 
   const handleNavigate = (screen: string) => {
     setCurrentScreen(screen === "crowdfunding" ? "community-support" : screen);
@@ -156,13 +183,17 @@ export function IntegratedWalletApp() {
           </div>
         </div>
       )}
-      {currentScreen === "home" && <HomeScreen onNavigate={handleNavigate} />}
+      {currentScreen === "home" && (
+        <HomeScreen onNavigate={handleNavigate} activeUserId={activeUserId} />
+      )}
       {currentScreen === "send" && <SendMoneyScreen onBack={handleBack} />}
       {currentScreen === "scan" && (
         <ScanPayScreen onBack={handleBack} onNavigate={handleNavigate} />
       )}
       {currentScreen === "bills" && <BillsScreen onBack={handleBack} />}
-      {currentScreen === "history" && <HistoryScreen onBack={handleBack} />}
+      {currentScreen === "history" && (
+        <HistoryScreen onBack={handleBack} activeUserId={activeUserId} />
+      )}
       {currentScreen === "profile" && (
         <ProfileScreen onBack={handleBack} onNavigate={handleNavigate} />
       )}

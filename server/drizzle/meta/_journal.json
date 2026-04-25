@@ -15,6 +15,13 @@
       "when": 1777111740558,
       "tag": "0001_tense_anthem",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1777117840435,
+      "tag": "0002_pretty_sunfire",
+      "breakpoints": true
     }
   ]
 }
