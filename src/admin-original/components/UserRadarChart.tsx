@@ -71,7 +71,7 @@ export const UserRadarChart = ({
                     setOpen(false);
                   }
                 }}
-                placeholder="Search by IC Numberâ€¦"
+                placeholder="Search by IC Number"
                 className="w-full rounded-md border border-input bg-background pl-8 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
               />
               {userQuery && (

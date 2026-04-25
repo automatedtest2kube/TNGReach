@@ -1,7 +1,18 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { X, Mic, Send, MicOff, Volume2, VolumeX } from "lucide-react";
+import {
+  ArrowUpRight,
+  BellRing,
+  Check,
+  ScanFace,
+  X,
+  Mic,
+  Send,
+  MicOff,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
 import { Mascot } from "@/components/Mascot";
 import { useAccessibility } from "@/context/accessibility-context";
 import { fetchPollyAudio, sendChatMessage, transcribeAudio, type ChatMessage } from "@/lib/api/chat";
@@ -16,12 +27,21 @@ interface AICommandCenterProps {
   onWalletChanged?: () => void;
 }
 
+type SendMoneyCard = {
+  kind: "send_money";
+  recipient: string;
+  amount: number;
+  phase: "preview" | "face_verifying" | "receipt";
+  refNo?: string;
+};
+
 interface Message {
   id: string;
   type: "user" | "ai";
   text: string;
   timestamp: Date;
   pending?: boolean;
+  card?: SendMoneyCard;
 }
 
 type BrowserSpeechRecognition = {
@@ -58,6 +78,279 @@ function welcomeMessageText(userDisplayName?: string): string {
 
 function messageToChatRole(type: Message["type"]): ChatMessage["role"] {
   return type === "ai" ? "assistant" : "user";
+}
+
+function parseAmountToken(raw: string): number {
+  return Number.parseFloat(raw.replace(/,/g, "."));
+}
+
+/**
+ * Normalizes user input for send-money intent matching (spacing + trailing punctuation).
+ */
+function normalizeSendMoneyInput(raw: string): string {
+  return raw
+    .trim()
+    .replace(/\s+/g, " ")
+    .replace(/[.!?…]+$/u, "")
+    .trim();
+}
+
+const AMOUNT = String.raw`(\d+(?:[.,]\d{1,2})?)`;
+const CUR = String.raw`(?:rm|myr)`;
+
+function cleanRecipient(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^(to|for)\s+/i, "")
+    .replace(/[.,;:!?]+$/g, "")
+    .trim();
+}
+
+/** Detects natural send phrases, e.g. "send money to ABU rm 50", "Send RM 100 To Tian Qi", "transfer 25.50 to Ali". */
+export function parseSendMoneyIntent(raw: string): { recipient: string; amount: number } | null {
+  const normalized = normalizeSendMoneyInput(raw);
+  if (!normalized) return null;
+
+  const patterns: Array<{ re: RegExp; recipient: number; amount: number }> = [
+    // send money to <name> rm|myr <amount> (name may be multiple words)
+    { re: new RegExp(`^send money to (.+?)\\s+${CUR}\\s*${AMOUNT}$`, "i"), recipient: 1, amount: 2 },
+    // send money rm|myr <amount> to <name>
+    { re: new RegExp(`^send money\\s+${CUR}\\s*${AMOUNT}\\s+to\\s+(.+)$`, "i"), recipient: 2, amount: 1 },
+    // send|pay <currency><amount> to <name> — allows "RM100" or "RM 100"
+    { re: new RegExp(`^(?:send|pay)\\s+${CUR}\\s*${AMOUNT}\\s+to\\s+(.+)$`, "i"), recipient: 2, amount: 1 },
+    // send <amount> rm|myr to <name>
+    { re: new RegExp(`^send\\s+${AMOUNT}\\s+${CUR}\\s+to\\s+(.+)$`, "i"), recipient: 2, amount: 1 },
+    // transfer <currency><amount> to <name>
+    { re: new RegExp(`^transfer\\s+${CUR}\\s*${AMOUNT}\\s+to\\s+(.+)$`, "i"), recipient: 2, amount: 1 },
+    // transfer <amount> to <name> (currency optional / implied)
+    { re: new RegExp(`^transfer\\s+${AMOUNT}\\s+to\\s+(.+)$`, "i"), recipient: 2, amount: 1 },
+  ];
+
+  for (const { re, recipient: ri, amount: ai } of patterns) {
+    const m = re.exec(normalized);
+    if (!m) continue;
+    const recipientRaw = cleanRecipient(m[ri] ?? "");
+    const amountRaw = m[ai]?.trim() ?? "";
+    if (!recipientRaw || !amountRaw) continue;
+    const amount = parseAmountToken(amountRaw);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    return { recipient: recipientRaw, amount };
+  }
+
+  // Fallback parser for freer wording, while preserving multi-word names.
+  const amountMatch =
+    /\b(?:rm|myr)\s*(\d+(?:[.,]\d{1,2})?)\b/i.exec(normalized) ??
+    /\b(\d+(?:[.,]\d{1,2})?)\s*(?:rm|myr)\b/i.exec(normalized);
+  const toMatch = /\bto\s+(.+)$/i.exec(normalized);
+  if (amountMatch && toMatch) {
+    const amount = parseAmountToken(amountMatch[1]);
+    const recipient = cleanRecipient(toMatch[1] ?? "");
+    if (Number.isFinite(amount) && amount > 0 && recipient) {
+      return { recipient, amount };
+    }
+  }
+
+  return null;
+}
+
+function isSendMoneyKeywordIntent(raw: string): boolean {
+  const normalized = normalizeSendMoneyInput(raw).toLowerCase();
+  return normalized === "pay" || normalized === "send" || normalized === "transfer";
+}
+
+function messageContentForApi(m: Message): string {
+  if (m.type === "ai" && m.card?.kind === "send_money") {
+    const { recipient, amount, phase, refNo } = m.card;
+    if (phase === "receipt" && refNo) {
+      return `[Send money completed: RM ${amount.toFixed(2)} to ${recipient}, ref ${refNo}]`;
+    }
+    if (phase === "face_verifying") {
+      return `[Send money: face verification in progress for RM ${amount.toFixed(2)} to ${recipient}]`;
+    }
+    return `[Send money: RM ${amount.toFixed(2)} to ${recipient}, awaiting approval]`;
+  }
+  return m.text;
+}
+
+function makeSimulatedTxnRef(): string {
+  const n = Math.floor(100000 + Math.random() * 900000);
+  return `TXN${n}`;
+}
+
+function formatMessageTime(d: Date): string {
+  return d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+}
+
+function SendMoneyPreviewCard({
+  recipient,
+  amount,
+  isElderlyMode,
+  onApprove,
+}: {
+  recipient: string;
+  amount: number;
+  isElderlyMode: boolean;
+  onApprove: () => void;
+}) {
+  const displayRecipient = recipient || "—";
+  const amountWhole = Number.isFinite(amount) && amount % 1 === 0;
+  const amountLabel = Number.isFinite(amount)
+    ? amountWhole
+      ? String(Math.round(amount))
+      : amount.toFixed(2)
+    : "0";
+
+  return (
+    <div className="w-full max-w-[320px] rounded-2xl border border-border/80 bg-white p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#5896FD] text-white">
+          <ArrowUpRight className="h-5 w-5" aria-hidden />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className={`font-semibold uppercase tracking-wide text-muted-foreground ${isElderlyMode ? "text-xs" : "text-[10px]"}`}>
+            Send money
+          </p>
+          <p className={`truncate font-semibold capitalize text-foreground ${isElderlyMode ? "text-lg" : "text-base"}`}>
+            {displayRecipient}{" "}
+            <span className="font-semibold lowercase text-muted-foreground">RM {amountLabel}</span>
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-full bg-slate-100 px-4 py-2 text-center">
+        <span className={`font-bold text-[#5896FD] ${isElderlyMode ? "text-2xl" : "text-xl"}`}>
+          <span className={`align-middle font-semibold ${isElderlyMode ? "text-lg" : "text-sm"}`}>RM</span>{" "}
+          <span className="tabular-nums">{amountLabel}</span>
+        </span>
+      </div>
+
+      <div className="mt-3 space-y-2 border-t border-border/60 pt-3 text-sm">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground">Recipient</span>
+          <span className="truncate font-medium capitalize text-foreground">
+            {displayRecipient}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-muted-foreground">Status</span>
+          <span className="font-semibold tabular-nums text-amber-600">Pending approval</span>
+        </div>
+      </div>
+
+      <div className="mt-4 flex justify-end">
+        <button
+          type="button"
+          onClick={onApprove}
+          className={`rounded-full bg-[#5896FD] px-5 py-2 font-semibold text-white shadow-md transition-opacity hover:opacity-95 ${
+            isElderlyMode ? "text-base px-6 py-2.5" : "text-sm"
+          }`}
+        >
+          Approve
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SendMoneyFaceVerifyCard({ isElderlyMode }: { isElderlyMode: boolean }) {
+  return (
+    <div className="relative w-full max-w-[320px] overflow-hidden rounded-2xl border border-border/80 bg-white p-6 shadow-sm">
+      <div className="flex flex-col items-center text-center">
+        <div className="relative flex h-20 w-20 items-center justify-center">
+          <span
+            className="absolute inset-0 rounded-full border-2 border-emerald-400/40 animate-ping"
+            style={{ animationDuration: "1.8s" }}
+            aria-hidden
+          />
+          <div className="relative flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 ring-2 ring-emerald-200/80">
+            <ScanFace className={`${isElderlyMode ? "h-9 w-9" : "h-8 w-8"}`} aria-hidden />
+          </div>
+        </div>
+        <p className={`mt-4 font-semibold text-foreground ${isElderlyMode ? "text-lg" : "text-base"}`}>
+          Verifying your face
+        </p>
+        <p className={`mt-1 text-muted-foreground ${isElderlyMode ? "text-sm" : "text-xs"}`}>
+          Hold still — simulated biometric check…
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function SendMoneyReceiptCard({
+  recipient,
+  amount,
+  refNo,
+  isElderlyMode,
+  onNotify,
+}: {
+  recipient: string;
+  amount: number;
+  refNo: string;
+  isElderlyMode: boolean;
+  onNotify: () => void;
+}) {
+  const displayRecipient = recipient || "—";
+  const amountWhole = Number.isFinite(amount) && amount % 1 === 0;
+  const amountLabel = Number.isFinite(amount)
+    ? amountWhole
+      ? String(Math.round(amount))
+      : amount.toFixed(2)
+    : "0";
+  const subtitle = `Money sent to ${displayRecipient} RM ${amountLabel}`;
+
+  return (
+    <div className="w-full max-w-[320px] rounded-2xl border border-border/80 bg-white p-5 shadow-md">
+      <div className="flex flex-col items-center text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+          <Check className={`${isElderlyMode ? "h-8 w-8" : "h-7 w-7"} stroke-[2.5]`} aria-hidden />
+        </div>
+        <h3 className={`mt-3 font-bold text-foreground ${isElderlyMode ? "text-xl" : "text-lg"}`}>
+          Transfer Successful!
+        </h3>
+        <p className={`mt-1 text-muted-foreground ${isElderlyMode ? "text-sm" : "text-xs"}`}>{subtitle}</p>
+      </div>
+
+      <div className="mt-4 space-y-0 divide-y divide-border/70 text-sm">
+        <div className="flex items-center justify-between gap-2 py-2.5">
+          <span className="text-muted-foreground">Recipient</span>
+          <span className="truncate font-medium capitalize text-slate-900">
+            {displayRecipient}
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2 py-2.5">
+          <span className="text-muted-foreground">Amount</span>
+          <span className="font-bold text-emerald-600">
+            RM <span className="tabular-nums">{amountLabel}</span>
+          </span>
+        </div>
+        <div className="flex items-center justify-between gap-2 py-2.5">
+          <span className="text-muted-foreground">Ref no.</span>
+          <span className="font-medium tabular-nums text-slate-900">{refNo}</span>
+        </div>
+      </div>
+
+      <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/60 pt-4">
+        <button
+          type="button"
+          onClick={onNotify}
+          className="flex min-w-0 max-w-[65%] items-center gap-2 text-left text-[#5896FD] transition-opacity hover:opacity-80"
+        >
+          <BellRing className="h-4 w-4 shrink-0" aria-hidden />
+          <span className={`truncate font-medium ${isElderlyMode ? "text-sm" : "text-xs"}`}>
+            Notify recipient
+          </span>
+        </button>
+        <span
+          className={`shrink-0 rounded-full bg-slate-200/95 px-3 py-1.5 font-medium text-slate-600 ${
+            isElderlyMode ? "text-sm" : "text-xs"
+          }`}
+        >
+          Sent
+        </span>
+      </div>
+    </div>
+  );
 }
 
 async function blobToBase64(blob: Blob): Promise<string> {
@@ -103,11 +396,13 @@ export function AICommandCenter({
   const speechRecognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastSpokenAiIdRef = useRef<string | null>(null);
+  const faceVerifyTimeoutsRef = useRef<Set<number>>(new Set());
 
   const quickActions = [
     { label: "Send RM50 to a contact", action: "send" },
     { label: "Top up RM100", action: "topup" },
     { label: "Pay electricity bill", action: "bills" },
+    { label: "Pay parking", action: "parking" },
     { label: "Scan QR code", action: "scan" },
     { label: "Check balance", action: "home" },
     { label: "View spending", action: "ai-insights" },
@@ -158,6 +453,8 @@ export function AICommandCenter({
       if (audioRef.current) {
         audioRef.current.pause();
       }
+      faceVerifyTimeoutsRef.current.forEach((id) => clearTimeout(id));
+      faceVerifyTimeoutsRef.current.clear();
     };
   }, []);
 
@@ -191,19 +488,48 @@ export function AICommandCenter({
     }
     setIsSending(true);
 
+    const sendMoneyPreview = parseSendMoneyIntent(text);
+    const keywordIntent = isSendMoneyKeywordIntent(text);
+    const sendMoneyCardPayload = sendMoneyPreview
+      ? {
+          recipient: sendMoneyPreview.recipient,
+          amount: sendMoneyPreview.amount,
+        }
+      : keywordIntent
+        ? {
+            recipient: "Recipient",
+            amount: 0,
+          }
+        : null;
+
     try {
       const payload: ChatMessage[] = nextMessages.map((m) => ({
         role: messageToChatRole(m.type),
-        content: m.text,
+        content: messageContentForApi(m),
       }));
       const res = await sendChatMessage(payload, activeUserId);
+      const aiMsgId = `${Date.now()}-ai`;
+      const replyText = sendMoneyCardPayload
+        ? ""
+        : (res.reply && String(res.reply).trim()) || "";
+
       setMessages((prev) => [
         ...prev,
         {
-          id: `${Date.now()}-ai`,
+          id: aiMsgId,
           type: "ai",
-          text: res.reply,
+          text: replyText,
           timestamp: new Date(),
+          ...(sendMoneyCardPayload
+            ? {
+                card: {
+                  kind: "send_money" as const,
+                  recipient: sendMoneyCardPayload.recipient,
+                  amount: sendMoneyCardPayload.amount,
+                  phase: "preview" as const,
+                },
+              }
+            : {}),
         },
       ]);
       if (res.action === "send_money" || res.action === "pay_parking") {
@@ -236,6 +562,42 @@ export function AICommandCenter({
       onClose();
       onNavigate(action);
     }
+  };
+
+  const handleApproveSendMoney = (messageId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId && m.card?.kind === "send_money" && m.card.phase === "preview"
+          ? { ...m, card: { ...m.card, phase: "face_verifying" as const } }
+          : m,
+      ),
+    );
+
+    const tid = window.setTimeout(() => {
+      faceVerifyTimeoutsRef.current.delete(tid);
+      const refNo = makeSimulatedTxnRef();
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId && m.card?.kind === "send_money" && m.card.phase === "face_verifying"
+            ? { ...m, card: { ...m.card, phase: "receipt" as const, refNo } }
+            : m,
+        ),
+      );
+      onWalletChanged?.();
+    }, 2400);
+    faceVerifyTimeoutsRef.current.add(tid);
+  };
+
+  const handleReceiptNotify = () => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-notify`,
+        type: "ai",
+        text: "Recipient notification sent (demo).",
+        timestamp: new Date(),
+      },
+    ]);
   };
 
   const playAiText = async (text: string) => {
@@ -515,23 +877,64 @@ export function AICommandCenter({
                 key={msg.id}
                 className={`flex ${msg.type === "user" ? "justify-end" : "justify-start"}`}
               >
-                <div
-                  className={`max-w-[85%] px-4 py-3 rounded-2xl ${
-                    msg.type === "user"
-                      ? "bg-gradient-to-r from-[#5896FD] to-[#806EF8] text-white rounded-br-md"
-                      : "text-foreground rounded-bl-md"
-                  } ${isElderlyMode ? "text-lg py-4" : "text-base"}`}
-                  style={
-                    msg.type === "ai"
-                      ? {
+                {msg.type === "ai" && msg.card?.kind === "send_money" ? (
+                  <div className="flex max-w-[min(100%,360px)] flex-col items-start gap-2">
+                    {msg.card.phase === "preview" ? (
+                      <SendMoneyPreviewCard
+                        recipient={msg.card.recipient}
+                        amount={msg.card.amount}
+                        isElderlyMode={isElderlyMode}
+                        onApprove={() => handleApproveSendMoney(msg.id)}
+                      />
+                    ) : msg.card.phase === "face_verifying" ? (
+                      <SendMoneyFaceVerifyCard isElderlyMode={isElderlyMode} />
+                    ) : msg.card.phase === "receipt" && msg.card.refNo ? (
+                      <SendMoneyReceiptCard
+                        recipient={msg.card.recipient}
+                        amount={msg.card.amount}
+                        refNo={msg.card.refNo}
+                        isElderlyMode={isElderlyMode}
+                        onNotify={handleReceiptNotify}
+                      />
+                    ) : null}
+                    <p
+                      className={`pl-1 text-muted-foreground ${isElderlyMode ? "text-sm" : "text-xs"}`}
+                    >
+                      {formatMessageTime(msg.timestamp)}
+                    </p>
+                    {msg.text ? (
+                      <div
+                        className={`max-w-full rounded-2xl rounded-bl-md px-4 py-3 text-foreground ${
+                          isElderlyMode ? "text-lg py-4" : "text-base"
+                        }`}
+                        style={{
                           background: "rgba(255,255,255,0.9)",
                           border: "1px solid rgba(120, 80, 220, 0.16)",
-                        }
-                      : undefined
-                  }
-                >
-                  {msg.text}
-                </div>
+                        }}
+                      >
+                        {msg.text}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div
+                    className={`max-w-[85%] px-4 py-3 rounded-2xl ${
+                      msg.type === "user"
+                        ? "bg-gradient-to-r from-[#5896FD] to-[#806EF8] text-white rounded-br-md"
+                        : "text-foreground rounded-bl-md"
+                    } ${isElderlyMode ? "text-lg py-4" : "text-base"}`}
+                    style={
+                      msg.type === "ai"
+                        ? {
+                            background: "rgba(255,255,255,0.9)",
+                            border: "1px solid rgba(120, 80, 220, 0.16)",
+                          }
+                        : undefined
+                    }
+                  >
+                    {msg.text}
+                  </div>
+                )}
               </div>
             ))}
             <div ref={messagesEndRef} />

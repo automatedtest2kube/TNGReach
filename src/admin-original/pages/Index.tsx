@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ALL_CATEGORIES, REGIONS, totalSpending, type Category } from "@/admin-original/data/regions";
 import { inferAreaFromPoint, parseAreaKey } from "@/admin-original/data/areas";
 import { inferSubsidyCategory, type SubsidyCategory } from "@/admin-original/data/subsidies";
@@ -17,6 +17,8 @@ import { TransactionDialog } from "@/admin-original/components/TransactionDialog
 import { KpiCard } from "@/admin-original/components/KpiCard";
 import { AzureMalaysiaMap } from "@/admin-original/components/AzureMalaysiaMap";
 import { Activity, Banknote, MessageCircle, Send, Users, X } from "lucide-react";
+import adminLogo from "@/assets/admin-logo-upload.png";
+import mobileAssistantRobot from "@/assets/mascot/idle.webp";
 
 function matchesAgeBucket(age: number, bucket: AgeBucket): boolean {
   if (bucket === "18-24") return age >= 18 && age <= 24;
@@ -177,7 +179,7 @@ const Index = () => {
         <div className="flex items-center justify-between px-6 py-3.5">
           <div className="flex items-center gap-3">
             <img
-              src="/tng-reach-logo.png"
+              src={adminLogo}
               alt="TNG Reach"
               className="h-14 w-auto rounded-md object-contain"
             />
@@ -323,7 +325,7 @@ const Index = () => {
             <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-secondary/40">
               <div className="flex items-center gap-2">
                 <img
-                  src="/tng-assistant-robot.png"
+                  src={mobileAssistantRobot}
                   alt="TNG Assistant"
                   className="h-7 w-7 rounded-full object-cover"
                 />
@@ -384,7 +386,7 @@ const Index = () => {
           aria-label="Toggle assistant chat"
         >
           <img
-            src="/tng-assistant-robot.png"
+            src={mobileAssistantRobot}
             alt="Open assistant"
             className="h-20 w-20 rounded-full object-cover"
           />
