@@ -17,6 +17,8 @@ import { TransactionDialog } from "@/admin-original/components/TransactionDialog
 import { KpiCard } from "@/admin-original/components/KpiCard";
 import { AzureMalaysiaMap } from "@/admin-original/components/AzureMalaysiaMap";
 import { Activity, Banknote, MessageCircle, Send, Users, X } from "lucide-react";
+import tngLogo from "@/assets/admin-logo-upload.png";
+import adminAssistantRobot from "@/assets/mascot/shield.webp";
 
 function matchesAgeBucket(age: number, bucket: AgeBucket): boolean {
   if (bucket === "18-24") return age >= 18 && age <= 24;
@@ -177,7 +179,7 @@ const Index = () => {
         <div className="flex items-center justify-between px-6 py-3.5">
           <div className="flex items-center gap-3">
             <img
-              src="/tng-reach-logo.png"
+              src={tngLogo}
               alt="TNG Reach"
               className="h-14 w-auto rounded-md object-contain"
             />
@@ -323,7 +325,7 @@ const Index = () => {
             <div className="flex items-center justify-between px-3 py-2 border-b border-border bg-secondary/40">
               <div className="flex items-center gap-2">
                 <img
-                  src="/tng-assistant-robot.png"
+                  src={adminAssistantRobot}
                   alt="TNG Assistant"
                   className="h-7 w-7 rounded-full object-cover"
                 />
@@ -384,7 +386,7 @@ const Index = () => {
           aria-label="Toggle assistant chat"
         >
           <img
-            src="/tng-assistant-robot.png"
+            src={adminAssistantRobot}
             alt="Open assistant"
             className="h-20 w-20 rounded-full object-cover"
           />
