@@ -55,7 +55,7 @@ export function AccessibilityScreen({ onBack }: AccessibilityScreenProps) {
           <ChevronLeft className="h-5 w-5" />
         </motion.button>
         <h1
-          className={`font-extrabold tracking-tight text-foreground ${elderlyMode ? "text-2xl" : "text-xl"}`}
+          className="font-extrabold tracking-tight text-foreground text-xl"
         >
           {t("accessibilitySettings")}
         </h1>
@@ -128,10 +128,10 @@ export function AccessibilityScreen({ onBack }: AccessibilityScreenProps) {
                     <RowIcon className="h-5 w-5 text-brand-purple" />
                   </div>
                   <div>
-                    <span className={`font-medium text-foreground ${elderlyMode ? "text-lg" : ""}`}>
+                    <span className="font-medium text-foreground">
                       {row.title}
                     </span>
-                    <p className={`text-foreground/50 ${elderlyMode ? "text-base" : "text-sm"}`}>
+                    <p className="text-foreground/50 text-sm">
                       {row.sub}
                     </p>
                   </div>

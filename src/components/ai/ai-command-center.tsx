@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { X, Mic, Send, MicOff } from "lucide-react";
 import { Mascot } from "@/components/Mascot";
 import { useAccessibility } from "@/context/accessibility-context";
@@ -9,6 +9,7 @@ interface AICommandCenterProps {
   isOpen: boolean;
   onClose: () => void;
   onNavigate?: (screen: string) => void;
+  currentScreen?: string;
 }
 
 interface Message {
@@ -18,11 +19,9 @@ interface Message {
   timestamp: Date;
 }
 
-export function AICommandCenter({ isOpen, onClose, onNavigate }: AICommandCenterProps) {
+export function AICommandCenter({ isOpen, onClose, onNavigate, currentScreen }: AICommandCenterProps) {
   const [input, setInput] = useState("");
   const [isListening, setIsListening] = useState(false);
-  const [panelHeight, setPanelHeight] = useState(70);
-  const [isDragging, setIsDragging] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
@@ -33,10 +32,6 @@ export function AICommandCenter({ isOpen, onClose, onNavigate }: AICommandCenter
   ]);
   const { isElderlyMode } = useAccessibility();
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const dragStartY = useRef(0);
-  const startHeight = useRef(70);
-  /** Ignore backdrop / close for a few ms so the post-touch synthetic click cannot reopen-close the sheet. */
-  const suppressCloseUntilRef = useRef(0);
 
   const quickActions = [
     { label: "Send RM50 to Sarah", action: "send" },
@@ -47,23 +42,30 @@ export function AICommandCenter({ isOpen, onClose, onNavigate }: AICommandCenter
     { label: "View spending", action: "ai-insights" },
   ];
 
+  const screenLabelMap: Record<string, string> = {
+    home: "Home",
+    send: "Send Money",
+    scan: "Scan & Pay",
+    family: "Family",
+    "family-scan": "Family Scan",
+    bills: "Bills",
+    history: "History",
+    profile: "Profile & Settings",
+    accessibility: "Accessibility",
+    parking: "Parking",
+    "ai-insights": "AI Insights",
+    "ai-voice": "Voice Assistant",
+    reminders: "Reminders",
+    "community-support": "Community Support",
+    "trust-score": "Trust Score",
+  };
+  const currentPageLabel = screenLabelMap[currentScreen ?? ""] ?? "this page";
+
   useEffect(() => {
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages]);
-
-  useEffect(() => {
-    if (isOpen) {
-      setPanelHeight(70);
-      suppressCloseUntilRef.current = Date.now() + 500;
-    }
-  }, [isOpen]);
-
-  const tryClose = useCallback(() => {
-    if (Date.now() < suppressCloseUntilRef.current) return;
-    onClose();
-  }, [onClose]);
 
   const handleSend = () => {
     if (!input.trim()) return;
@@ -82,14 +84,14 @@ export function AICommandCenter({ isOpen, onClose, onNavigate }: AICommandCenter
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
         type: "ai",
-        text: getAIResponse(input),
+        text: getAIResponse(input, currentPageLabel),
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, aiResponse]);
     }, 800);
   };
 
-  const getAIResponse = (query: string): string => {
+  const getAIResponse = (query: string, pageContext: string): string => {
     const lowerQuery = query.toLowerCase();
     if (lowerQuery.includes("send") || lowerQuery.includes("transfer")) {
       return "I can help you send money. Who would you like to send to and how much?";
@@ -123,98 +125,19 @@ export function AICommandCenter({ isOpen, onClose, onNavigate }: AICommandCenter
     }
   };
 
-  const handleDragStart = useCallback(
-    (e: React.TouchEvent | React.MouseEvent) => {
-      setIsDragging(true);
-      dragStartY.current = "touches" in e ? e.touches[0].clientY : e.clientY;
-      startHeight.current = panelHeight;
-    },
-    [panelHeight],
-  );
-
-  const handleDragMove = useCallback(
-    (e: TouchEvent | MouseEvent) => {
-      if (!isDragging) return;
-
-      const currentY = "touches" in e ? e.touches[0].clientY : e.clientY;
-      const deltaY = dragStartY.current - currentY;
-      const deltaPercent = (deltaY / window.innerHeight) * 100;
-      const newHeight = Math.min(95, Math.max(40, startHeight.current + deltaPercent));
-      setPanelHeight(newHeight);
-    },
-    [isDragging],
-  );
-
-  const handleDragEnd = useCallback(() => {
-    if (!isDragging) return;
-    setIsDragging(false);
-
-    if (panelHeight > 82) {
-      setPanelHeight(95);
-    } else if (panelHeight < 55) {
-      setPanelHeight(40);
-    } else {
-      setPanelHeight(70);
-    }
-  }, [isDragging, panelHeight]);
-
-  useEffect(() => {
-    if (isDragging) {
-      const onMove = (e: TouchEvent | MouseEvent) => handleDragMove(e);
-      const onEnd = () => handleDragEnd();
-
-      window.addEventListener("mousemove", onMove, { passive: true });
-      window.addEventListener("mouseup", onEnd);
-      window.addEventListener("touchmove", onMove, { passive: true });
-      window.addEventListener("touchend", onEnd);
-
-      return () => {
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onEnd);
-        window.removeEventListener("touchmove", onMove);
-        window.removeEventListener("touchend", onEnd);
-      };
-    }
-  }, [isDragging, handleDragMove, handleDragEnd]);
-
   if (!isOpen) return null;
 
   return (
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" onClick={tryClose} />
-
-      {/* Command Center Panel */}
+    <div className="fixed inset-0 z-50" style={{ height: "100vh" }}>
       <div
-        className="fixed left-0 right-0 bottom-0 z-50"
+        className="h-full w-full flex flex-col overflow-hidden"
         style={{
-          height: `${panelHeight}vh`,
-          transition: isDragging ? "none" : "height 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+          background:
+            "linear-gradient(140deg, rgba(255,255,255,0.97) 0%, rgba(244,239,255,0.97) 55%, rgba(255,244,233,0.97) 100%)",
         }}
       >
-        <div
-          className="h-full max-w-lg mx-auto flex flex-col rounded-t-3xl overflow-hidden"
-          style={{
-            background:
-              "linear-gradient(140deg, rgba(255,255,255,0.97) 0%, rgba(244,239,255,0.97) 55%, rgba(255,244,233,0.97) 100%)",
-            border: "1px solid rgba(120, 80, 220, 0.2)",
-            borderBottom: "none",
-            boxShadow: "0 -12px 42px rgba(120, 80, 220, 0.22)",
-          }}
-        >
-          {/* Drag Handle */}
-          <div
-            className="flex justify-center py-3 cursor-grab active:cursor-grabbing touch-none select-none shrink-0"
-            onMouseDown={handleDragStart}
-            onTouchStart={handleDragStart}
-          >
-            <div
-              className={`w-12 h-1.5 rounded-full transition-all duration-200 ${isDragging ? "bg-[#5896FD] w-20" : "bg-brand-purple/30 hover:bg-brand-purple/45"}`}
-            />
-          </div>
-
-          {/* Header */}
-          <div className="flex items-center justify-between px-5 pb-3 shrink-0">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 shrink-0">
             <div className="flex items-center gap-3">
               <div className="relative flex shrink-0 items-center justify-center">
                 <Mascot
@@ -230,133 +153,132 @@ export function AICommandCenter({ isOpen, onClose, onNavigate }: AICommandCenter
                   AI Command Center
                 </h2>
                 <p className={`text-foreground/60 ${isElderlyMode ? "text-base" : "text-sm"}`}>
-                  Ask anything. Act instantly.
+                  Ask anything. 
                 </p>
               </div>
             </div>
             <button
-              onClick={tryClose}
+              onClick={onClose}
               className={`${isElderlyMode ? "w-12 h-12" : "w-10 h-10"} rounded-full flex items-center justify-center transition-colors hover:bg-brand-purple/10`}
               style={{ background: "rgba(255, 255, 255, 0.88)", border: "1px solid rgba(120,80,220,0.18)" }}
             >
               <X className={`${isElderlyMode ? "w-6 h-6" : "w-5 h-5"} text-foreground/60`} />
             </button>
-          </div>
+        </div>
 
-          {/* Input Area - Fixed at top under header for easy access */}
-          <div className="px-5 pb-4 shrink-0">
-            <div
-              className="flex items-center gap-2 p-2 rounded-2xl"
-              style={{
-                background: "rgba(33, 38, 45, 0.95)",
-                border: "1px solid rgba(120, 80, 220, 0.25)",
-                boxShadow: "0 8px 20px rgba(120, 80, 220, 0.15)",
-                backgroundColor: "rgba(255,255,255,0.86)",
-              }}
-            >
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                placeholder="e.g. Send RM50 to Sarah"
-                className={`flex-1 bg-transparent px-4 py-2.5 text-foreground placeholder:text-foreground/45 focus:outline-none ${
-                  isElderlyMode ? "text-lg" : "text-base"
-                }`}
-              />
-
-              <button
-                onClick={toggleListening}
-                className={`${isElderlyMode ? "w-11 h-11" : "w-10 h-10"} rounded-full flex items-center justify-center transition-all ${
-                  isListening
-                    ? "bg-[#F85149] animate-pulse"
-                    : "bg-brand-purple/15 hover:bg-brand-purple/25"
-                }`}
+        {/* Messages Area - Scrollable (chat first) */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 min-h-0">
+          <p className={`mb-3 text-foreground/45 ${isElderlyMode ? "text-sm" : "text-xs"}`}>
+            Conversation
+          </p>
+          <div className="space-y-3">
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex ${msg.type === "user" ? "justify-end" : "justify-start"}`}
               >
-                {isListening ? (
-                  <MicOff className={`${isElderlyMode ? "w-5 h-5" : "w-4 h-4"} text-white`} />
-                ) : (
-                  <Mic className={`${isElderlyMode ? "w-5 h-5" : "w-4 h-4"} text-foreground/60`} />
-                )}
-              </button>
+                <div
+                  className={`max-w-[85%] px-4 py-3 rounded-2xl ${
+                    msg.type === "user"
+                      ? "bg-gradient-to-r from-[#5896FD] to-[#806EF8] text-white rounded-br-md"
+                      : "text-foreground rounded-bl-md"
+                  } ${isElderlyMode ? "text-lg py-4" : "text-base"}`}
+                  style={
+                    msg.type === "ai"
+                      ? {
+                          background: "rgba(255,255,255,0.9)",
+                          border: "1px solid rgba(120, 80, 220, 0.16)",
+                        }
+                      : undefined
+                  }
+                >
+                  {msg.text}
+                </div>
+              </div>
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
 
+        {/* Divider */}
+        <div className="px-5 shrink-0">
+          <div className="h-px bg-gradient-to-r from-transparent via-brand-purple/30 to-transparent" />
+        </div>
+
+        {/* Quick Actions - Above input */}
+        <div className="px-5 py-3 shrink-0">
+          <div className="flex flex-wrap gap-2">
+            {quickActions.map((action) => (
               <button
-                onClick={handleSend}
-                disabled={!input.trim()}
-                className={`${isElderlyMode ? "w-11 h-11" : "w-10 h-10"} rounded-full flex items-center justify-center transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
+                key={action.label}
+                onClick={() => handleQuickAction(action.action)}
+                className={`px-4 py-2 rounded-full text-brand-blue transition-all hover:bg-brand-blue/20 hover:text-brand-purple active:scale-95 ${
+                  isElderlyMode ? "text-base py-2.5 px-5" : "text-sm"
+                }`}
                 style={{
-                  background: input.trim()
-                    ? "linear-gradient(135deg, #5896FD 0%, #806EF8 100%)"
-                    : "rgba(120, 80, 220, 0.18)",
-                  boxShadow: input.trim() ? "0 4px 15px rgba(88, 150, 253, 0.4)" : "none",
+                  background: "rgba(255,255,255,0.82)",
+                  border: "1px solid rgba(120, 80, 220, 0.18)",
                 }}
               >
-                <Send className={`${isElderlyMode ? "w-5 h-5" : "w-4 h-4"} text-white`} />
+                {action.label}
               </button>
-            </div>
+            ))}
           </div>
+        </div>
 
-          {/* Quick Actions - Wrapped in rows for easy tap */}
-          <div className="px-5 pb-3 shrink-0">
-            <div className="flex flex-wrap gap-2">
-              {quickActions.map((action) => (
-                <button
-                  key={action.label}
-                  onClick={() => handleQuickAction(action.action)}
-                  className={`px-4 py-2 rounded-full text-brand-blue transition-all hover:bg-brand-blue/20 hover:text-brand-purple active:scale-95 ${
-                    isElderlyMode ? "text-base py-2.5 px-5" : "text-sm"
-                  }`}
-                  style={{
-                    background: "rgba(255,255,255,0.82)",
-                    border: "1px solid rgba(120, 80, 220, 0.18)",
-                  }}
-                >
-                  {action.label}
-                </button>
-              ))}
-            </div>
-          </div>
+        {/* Input Area - Fixed at bottom */}
+        <div className="px-5 pb-4 shrink-0">
+          <div
+            className="flex items-center gap-2 p-2 rounded-2xl"
+            style={{
+              background: "rgba(33, 38, 45, 0.95)",
+              border: "1px solid rgba(120, 80, 220, 0.25)",
+              boxShadow: "0 8px 20px rgba(120, 80, 220, 0.15)",
+              backgroundColor: "rgba(255,255,255,0.86)",
+            }}
+          >
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSend()}
+              placeholder={`Message TNGReach ${currentPageLabel ? ` about ${currentPageLabel}` : ""}`}
+              className={`flex-1 bg-transparent px-4 py-2.5 text-foreground placeholder:text-foreground/45 focus:outline-none ${
+                isElderlyMode ? "text-lg" : "text-base"
+              }`}
+            />
 
-          {/* Divider */}
-          <div className="px-5 shrink-0">
-            <div className="h-px bg-gradient-to-r from-transparent via-brand-purple/30 to-transparent" />
-          </div>
+            <button
+              onClick={toggleListening}
+              className={`${isElderlyMode ? "w-11 h-11" : "w-10 h-10"} rounded-full flex items-center justify-center transition-all ${
+                isListening
+                  ? "bg-[#F85149] animate-pulse"
+                  : "bg-brand-purple/15 hover:bg-brand-purple/25"
+              }`}
+            >
+              {isListening ? (
+                <MicOff className={`${isElderlyMode ? "w-5 h-5" : "w-4 h-4"} text-white`} />
+              ) : (
+                <Mic className={`${isElderlyMode ? "w-5 h-5" : "w-4 h-4"} text-foreground/60`} />
+              )}
+            </button>
 
-          {/* Messages Area - Scrollable */}
-          <div className="flex-1 overflow-y-auto px-5 py-4 min-h-0">
-            <p className={`mb-3 text-foreground/45 ${isElderlyMode ? "text-sm" : "text-xs"}`}>
-              Conversation
-            </p>
-            <div className="space-y-3">
-              {messages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`flex ${msg.type === "user" ? "justify-end" : "justify-start"}`}
-                >
-                  <div
-                    className={`max-w-[85%] px-4 py-3 rounded-2xl ${
-                      msg.type === "user"
-                        ? "bg-gradient-to-r from-[#5896FD] to-[#806EF8] text-white rounded-br-md"
-                        : "text-foreground rounded-bl-md"
-                    } ${isElderlyMode ? "text-lg py-4" : "text-base"}`}
-                    style={
-                      msg.type === "ai"
-                        ? {
-                            background: "rgba(255,255,255,0.9)",
-                            border: "1px solid rgba(120, 80, 220, 0.16)",
-                          }
-                        : undefined
-                    }
-                  >
-                    {msg.text}
-                  </div>
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
-            </div>
+            <button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              className={`${isElderlyMode ? "w-11 h-11" : "w-10 h-10"} rounded-full flex items-center justify-center transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
+              style={{
+                background: input.trim()
+                  ? "linear-gradient(135deg, #5896FD 0%, #806EF8 100%)"
+                  : "rgba(120, 80, 220, 0.18)",
+                boxShadow: input.trim() ? "0 4px 15px rgba(88, 150, 253, 0.4)" : "none",
+              }}
+            >
+              <Send className={`${isElderlyMode ? "w-5 h-5" : "w-4 h-4"} text-white`} />
+            </button>
           </div>
         </div>
       </div>
-    </>
+    </div>
   );
 }

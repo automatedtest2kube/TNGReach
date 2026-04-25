@@ -26,7 +26,7 @@ export function AIVoiceScreen({ onBack, onNavigate }: AIVoiceScreenProps) {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 1,
-      text: "Hello! I'm your PayEase assistant. How can I help you today?",
+      text: "Hello! I'm your TNGReach assistant. How can I help you today?",
       isUser: false,
       timestamp: "Just now",
     },

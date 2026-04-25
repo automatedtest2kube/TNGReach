@@ -77,6 +77,12 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
   const weeklyPrefix = weeklyAmount > 0 ? "+" : weeklyAmount < 0 ? "-" : "";
 
   useEffect(() => {
+    if (isElderlyMode) {
+      setShowBalance(true);
+    }
+  }, [isElderlyMode]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     if (window.sessionStorage.getItem(SPENDING_ALERT_DISMISSED_KEY) === "1") {
       setSpendingAlertDismissed(true);
@@ -195,7 +201,7 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
         {/* Greeting */}
         <div className="px-5 pt-5 pb-3">
           <p className="text-xl text-[#C9D1D9]">Hello,</p>
-          <h1 className="mt-1 text-4xl font-extrabold tracking-tight text-foreground">
+          <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-foreground">
             {userName}
           </h1>
         </div>
@@ -213,7 +219,7 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
               <p className="text-lg font-semibold text-white">{t("myMoney")}</p>
               <button
                 onClick={() => setShowBalance(!showBalance)}
-                className="p-3 rounded-full bg-white/25 active:scale-95 transition-transform"
+                className="flex items-center justify-center p-3 rounded-full bg-white/25 active:scale-95 transition-transform"
                 aria-label={showBalance ? "Hide money" : "Show money"}
                 style={{ minHeight: 56, minWidth: 56 }}
               >
@@ -224,7 +230,7 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
                 )}
               </button>
             </div>
-            <p className="text-5xl font-bold text-white tracking-tight">
+            <p className="text-4xl font-bold text-white tracking-tight">
               {balanceText}
             </p>
           </div>
@@ -233,28 +239,29 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
         {/* Tap & Speak big button */}
         <button
           onClick={() => onNavigate("ai-voice")}
-          className="mx-5 mb-6 w-[calc(100%-2.5rem)] flex items-center gap-4 px-6 py-5 rounded-2xl transition-transform active:scale-[0.98]"
+          className="mx-5 mb-6 w-[calc(100%-2.5rem)] flex items-center gap-4 px-6 py-5 rounded-3xl transition-transform active:scale-[0.98] ring-2 ring-white/65"
           style={{
             background: "linear-gradient(135deg, #5896FD 0%, #806EF8 100%)",
-            boxShadow: "0 8px 24px rgba(128, 110, 248, 0.35)",
-            minHeight: 80,
+            boxShadow: "0 12px 30px rgba(128, 110, 248, 0.45)",
+            minHeight: 96,
           }}
         >
           <div
-            className="w-14 h-14 rounded-full flex items-center justify-center flex-shrink-0"
-            style={{ background: "rgba(255,255,255,0.25)" }}
+            className="w-16 h-16 rounded-full flex items-center justify-center flex-shrink-0 animate-pulse"
+            style={{ background: "rgba(255,255,255,0.3)" }}
           >
-            <Mic className="w-7 h-7 text-white" />
+            <Mic className="w-8 h-8 text-white" />
           </div>
           <div className="flex-1 text-left">
-            <p className="text-xl font-bold text-white">{t("tapToSpeak")}</p>
-            <p className="text-base text-white/85">Say what you want to do</p>
+            <p className="text-xl font-extrabold text-white">Press Here to Speak</p>
+            <p className="text-base font-semibold text-white/95">Tell me what you want to do</p>
+            <p className="text-sm text-white/85">Example: "Send money to Ahmad"</p>
           </div>
         </button>
 
         {/* Big Actions - 2x2 grid, HUGE buttons */}
         <div className="px-5">
-          <h2 className="text-2xl font-bold text-[#E6EDF3] mb-4">What would you like to do?</h2>
+          <h2 className="text-lg font-bold text-[#E6EDF3] mb-4">What would you like to do?</h2>
           <div className="grid grid-cols-2 gap-4">
             {bigActions.map((action) => (
               <button
@@ -274,7 +281,7 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
                   <action.icon className="w-9 h-9 text-white" />
                 </div>
                 <div className="text-center">
-                  <p className="text-lg font-bold text-white leading-tight">{action.label}</p>
+                  <p className="text-base font-bold text-white leading-tight">{action.label}</p>
                   <p className="text-sm text-white/80 mt-1">{action.sub}</p>
                 </div>
               </button>
@@ -286,44 +293,44 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
         <div className="px-5 mt-6 grid grid-cols-2 gap-4">
           <button
             onClick={() => onNavigate("family")}
-            className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl transition-transform active:scale-95"
+            className="flex flex-col items-center justify-center gap-3 p-5 rounded-3xl transition-transform active:scale-95"
             style={{
-              background: "#1A1F29",
-              border: "2px solid #3FB950",
-              minHeight: 110,
+              background: "linear-gradient(135deg, #C2410C 0%, #F97316 100%)",
+              boxShadow: "0 8px 24px rgba(249, 115, 22, 0.35)",
+              minHeight: 160,
             }}
           >
             <div
-              className="w-12 h-12 rounded-full flex items-center justify-center"
-              style={{ background: "rgba(63, 185, 80, 0.2)" }}
+              className="w-16 h-16 rounded-2xl flex items-center justify-center"
+              style={{ background: "rgba(255,255,255,0.22)" }}
             >
-              <Phone className="w-6 h-6 text-[#3FB950]" />
+              <Phone className="w-9 h-9 text-white" />
             </div>
-            <span className="text-base font-bold text-[#E6EDF3]">{t("callFamily")}</span>
+            <span className="text-lg font-bold text-white text-center leading-tight">{t("callFamily")}</span>
           </button>
           <button
             onClick={() => onNavigate("profile")}
-            className="flex flex-col items-center justify-center gap-2 p-4 rounded-2xl transition-transform active:scale-95"
+            className="flex flex-col items-center justify-center gap-3 p-5 rounded-3xl transition-transform active:scale-95"
             style={{
-              background: "#1A1F29",
-              border: "2px solid #5896FD",
-              minHeight: 110,
+              background: "linear-gradient(135deg, #374151 0%, #6B7280 100%)",
+              boxShadow: "0 8px 24px rgba(107, 114, 128, 0.3)",
+              minHeight: 160,
             }}
           >
             <div
-              className="w-12 h-12 rounded-full flex items-center justify-center"
-              style={{ background: "rgba(88, 150, 253, 0.2)" }}
+              className="w-16 h-16 rounded-2xl flex items-center justify-center"
+              style={{ background: "rgba(255,255,255,0.22)" }}
             >
-              <HelpCircle className="w-6 h-6 text-[#5896FD]" />
+              <HelpCircle className="w-9 h-9 text-white" />
             </div>
-            <span className="text-base font-bold text-[#E6EDF3]">{t("getHelp")}</span>
+            <span className="text-lg font-bold text-white text-center leading-tight">{t("getHelp")}</span>
           </button>
         </div>
 
         {/* Recent transactions - simplified */}
         <div className="px-5 mt-6">
           <div className="flex items-center justify-between mb-3">
-            <h2 className="text-xl font-bold text-[#E6EDF3]">{t("whatPaid")}</h2>
+            <h2 className="text-lg font-bold text-[#E6EDF3]">{t("whatPaid")}</h2>
             <button
               onClick={() => onNavigate("history")}
               className="text-lg font-semibold text-[#5896FD] underline underline-offset-4"
@@ -335,8 +342,8 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
           <div
             className="rounded-2xl overflow-hidden"
             style={{
-              background: "#1A1F29",
-              border: "2px solid rgba(255,255,255,0.12)",
+              background: "#E5E7EB",
+              border: "2px solid rgba(100,116,139,0.25)",
             }}
           >
             {simpleTx.map((tx, index) => {
@@ -363,14 +370,14 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
                     )}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-lg font-bold text-[#E6EDF3] truncate">{tx.name}</p>
-                    <p className="text-base text-[#C9D1D9]">
+                    <p className="text-base font-bold text-slate-900 truncate">{tx.name}</p>
+                    <p className="text-base text-slate-600">
                       {isIn ? t("moneyIn") : t("moneyOut")} · {tx.time}
                     </p>
                   </div>
                   <p
-                    className="text-xl font-bold flex-shrink-0"
-                    style={{ color: isIn ? "#3FB950" : "#E6EDF3" }}
+                    className="text-base font-bold flex-shrink-0"
+                    style={{ color: isIn ? "#3FB950" : "#111827" }}
                   >
                     {isIn ? "+" : "-"}RM {Math.abs(tx.amount).toFixed(2)}
                   </p>
@@ -380,23 +387,6 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
           </div>
         </div>
 
-        {/* Simple Mode reminder */}
-        <div className="px-5 mt-6">
-          <button
-            onClick={() => onNavigate("profile")}
-            className="w-full flex items-center gap-3 px-4 py-4 rounded-2xl"
-            style={{
-              background: "rgba(128, 110, 248, 0.12)",
-              border: "2px solid rgba(128, 110, 248, 0.3)",
-            }}
-          >
-            <Users className="w-6 h-6 text-[#B0A4FF] flex-shrink-0" />
-            <span className="flex-1 text-left text-base font-semibold text-[#E6EDF3]">
-              {t("simpleMode")} · {t("largeButtons")}
-            </span>
-            <ChevronRight className="w-6 h-6 text-[#B0A4FF]" />
-          </button>
-        </div>
       </div>
     );
   }
