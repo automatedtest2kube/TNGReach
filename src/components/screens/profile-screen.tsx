@@ -19,10 +19,11 @@ import {
   Volume2,
   MessageCircle,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Switch } from "@/components/ui/switch";
 import { useAccessibility } from "@/context/accessibility-context";
+import { FALLBACK_USER_PROFILE, fetchUserProfile, getInitials } from "@/lib/user-profile";
 
 const pageStagger = {
   hidden: { opacity: 0 },
@@ -57,6 +58,21 @@ export function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps) {
   } = useAccessibility();
   const [notifications, setNotifications] = useState(true);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [profile, setProfile] = useState(FALLBACK_USER_PROFILE);
+
+  useEffect(() => {
+    let alive = true;
+    fetchUserProfile()
+      .then((data) => {
+        if (alive) setProfile(data);
+      })
+      .catch(() => {
+        // Keep fallback values when mock/API is unavailable.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const languages = [
     { code: "en" as const, name: "English" },
@@ -140,17 +156,17 @@ export function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps) {
           className={`${elderlyMode ? "h-24 w-24" : "h-20 w-20"} card-sheen relative flex items-center justify-center overflow-hidden rounded-full text-2xl font-bold text-white shadow-glow ${elderlyMode ? "text-3xl" : ""}`}
           style={{ background: "linear-gradient(135deg, #5896FD 0%, #806EF8 100%)" }}
         >
-          SA
+          {getInitials(profile.fullName)}
         </div>
         <div className="min-w-0 flex-1">
           <h2
             className={`font-bold tracking-tight text-foreground ${elderlyMode ? "text-2xl" : "text-xl"}`}
           >
-            Sarah Ahmad
+            {profile.fullName}
           </h2>
-          <p className={`text-foreground/50 ${elderlyMode ? "text-lg" : ""}`}>+60 12-345 6789</p>
+          <p className={`text-foreground/50 ${elderlyMode ? "text-lg" : ""}`}>{profile.phone}</p>
           <p className={`text-foreground/50 ${elderlyMode ? "text-base" : "text-sm"}`}>
-            sarah.ahmad@email.com
+            {profile.email}
           </p>
         </div>
       </motion.div>

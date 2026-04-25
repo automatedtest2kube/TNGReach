@@ -1,0 +1,11 @@
+{
+  "id": "user-001",
+  "fullName": "Sarah Ahmad",
+  "preferredName": "Sarah",
+  "icOrPassportNo": "880123-14-5678",
+  "accountMode": "normal",
+  "phone": "+60 12-345 6789",
+  "email": "sarah.ahmad@email.com",
+  "walletBalance": 2458.5,
+  "currency": "MYR"
+}

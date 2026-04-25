@@ -23,7 +23,7 @@ import {
   Mic,
   Users,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useAccessibility } from "@/context/accessibility-context";
 import { useWalletData } from "@/hooks/use-wallet-data";
@@ -60,6 +60,14 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
     time: new Date(tx.transactionDate).toLocaleDateString(),
     amount: Number(tx.amount),
   }));
+
+  const balanceText = useMemo(
+    () =>
+      showBalance
+        ? `${walletCurrency} ${walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : `${walletCurrency} ••••••`,
+    [showBalance, walletBalance, walletCurrency],
+  );
 
   // =============================================================
   // ELDERLY MODE: completely simplified layout
@@ -158,9 +166,7 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
               </button>
             </div>
             <p className="text-5xl font-bold text-white tracking-tight">
-              {showBalance
-                ? `${walletCurrency} ${walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                : `${walletCurrency} ••••••`}
+              {balanceText}
             </p>
           </div>
         </div>
@@ -420,9 +426,7 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
           </button>
         </div>
         <p className="relative z-10 text-4xl font-bold tracking-tight text-white drop-shadow-sm">
-          {showBalance
-            ? `${walletCurrency} ${walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-            : `${walletCurrency} ••••••`}
+          {balanceText}
         </p>
         <div className="relative z-10 mt-4 flex items-center gap-2 border-t border-white/25 pt-4">
           <div className="animate-bob rounded-full bg-white/25 p-1.5">

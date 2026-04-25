@@ -38,7 +38,7 @@ const translations: Record<Language, Record<string, string>> = {
     settings: "Settings",
     notifications: "Notifications",
     language: "Language",
-    elderlyMode: "Elderly Mode",
+    elderlyMode: "Simple Mode",
     accessibilitySettings: "Accessibility",
     needHelp: "Need Help?",
     voiceAssistant: "Voice Assistant",
