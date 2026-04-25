@@ -60,6 +60,54 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
     time: new Date(tx.transactionDate).toLocaleDateString(),
     amount: Number(tx.amount),
   }));
+  const allTransactions = summary?.transactions ?? [];
+  const expenseTx = allTransactions.filter((tx) => tx.transactionType !== "RECEIVE");
+  const now = new Date();
+  const currentMonth = now.getMonth();
+  const currentYear = now.getFullYear();
+  const previousMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+  const previousMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
+  const thisMonthSpent = expenseTx.reduce((sum, tx) => {
+    const date = new Date(tx.transactionDate);
+    if (date.getMonth() === currentMonth && date.getFullYear() === currentYear) {
+      return sum + Math.abs(Number(tx.amount));
+    }
+    return sum;
+  }, 0);
+  const lastMonthSpent = expenseTx.reduce((sum, tx) => {
+    const date = new Date(tx.transactionDate);
+    if (date.getMonth() === previousMonth && date.getFullYear() === previousMonthYear) {
+      return sum + Math.abs(Number(tx.amount));
+    }
+    return sum;
+  }, 0);
+  const thisWeekSpent = expenseTx.reduce((sum, tx) => {
+    const daysAgo = (now.getTime() - new Date(tx.transactionDate).getTime()) / (1000 * 60 * 60 * 24);
+    if (daysAgo >= 0 && daysAgo <= 7) {
+      return sum + Math.abs(Number(tx.amount));
+    }
+    return sum;
+  }, 0);
+  const spendingChangePercent =
+    lastMonthSpent > 0 ? ((thisMonthSpent - lastMonthSpent) / lastMonthSpent) * 100 : 0;
+  const spendingTrendUp = spendingChangePercent > 0;
+  const monthlyData = [previousMonth, currentMonth].map((month, index) => {
+    const isCurrent = index === 1;
+    const amount = expenseTx.reduce((sum, tx) => {
+      const date = new Date(tx.transactionDate);
+      const matchYear = isCurrent ? currentYear : previousMonthYear;
+      if (date.getMonth() === month && date.getFullYear() === matchYear) {
+        return sum + Math.abs(Number(tx.amount));
+      }
+      return sum;
+    }, 0);
+    return {
+      month: new Date(currentYear, month, 1).toLocaleString(undefined, { month: "short" }),
+      amount,
+      isActive: isCurrent,
+    };
+  });
 
   const balanceText = useMemo(
     () =>
@@ -354,33 +402,11 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
     { icon: ParkingIcon, label: t("parking"), screen: "parking", color: "#AECDFF" },
   ];
 
-  const transactions =
-    recentTx.length > 0
-      ? recentTx.map((tx) => ({
-          ...tx,
-          icon: tx.amount > 0 ? Plus : Send,
-        }))
-      : [
-          {
-            id: 1,
-            icon: ShoppingBag,
-            name: "Grocery Store",
-            time: "Today, 2:30 PM",
-            amount: -45.5,
-          },
-          { id: 2, icon: Coffee, name: "Coffee Shop", time: "Today, 10:15 AM", amount: -8.9 },
-          { id: 3, icon: Plus, name: "Top Up", time: "Yesterday", amount: 200.0 },
-          { id: 4, icon: Utensils, name: "Restaurant", time: "Yesterday", amount: -32.0 },
-          { id: 5, icon: Car, name: "Fuel Station", time: "Mar 18", amount: -55.0 },
-        ];
-
-  const monthlyData = [
-    { month: "Jan", amount: 980, isActive: false },
-    { month: "Feb", amount: 1120, isActive: false },
-    { month: "Mar", amount: 1089, isActive: false },
-    { month: "Apr", amount: 1250, isActive: true },
-  ];
-  const maxAmount = Math.max(...monthlyData.map((d) => d.amount));
+  const transactions = recentTx.map((tx) => ({
+    ...tx,
+    icon: tx.amount > 0 ? Plus : Send,
+  }));
+  const maxAmount = Math.max(...monthlyData.map((d) => d.amount), 1);
 
   return (
     <motion.div
@@ -432,7 +458,9 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
           <div className="animate-bob rounded-full bg-white/25 p-1.5">
             <Zap className="h-4 w-4 text-white" />
           </div>
-          <span className="text-sm font-medium text-white/90">+RM 123.50 this week</span>
+          <span className="text-sm font-medium text-white/90">
+            RM {thisWeekSpent.toFixed(2)} spent this week
+          </span>
         </div>
       </motion.div>
 
@@ -486,12 +514,16 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
           <div className="min-w-0 flex-1 text-left">
             <p className="font-semibold text-foreground">Spending Alert</p>
             <p className="text-sm text-brand-orange/90">
-              You spent 15% more on food this week. Tap to see insights.
+              {spendingTrendUp ? "Spending is up" : "Spending is down"}{" "}
+              {Math.abs(spendingChangePercent).toFixed(1)}% vs last month.
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1 rounded-full bg-destructive/15 px-3 py-1.5">
             <TrendingUp className="h-4 w-4 text-destructive" />
-            <span className="text-sm font-semibold text-destructive">+15%</span>
+            <span className="text-sm font-semibold text-destructive">
+              {spendingTrendUp ? "+" : "-"}
+              {Math.abs(spendingChangePercent).toFixed(1)}%
+            </span>
           </div>
         </motion.button>
       </motion.div>
@@ -557,8 +589,11 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
           <div className="mt-3 flex items-center justify-center gap-2 border-t border-brand-purple/15 pt-3">
             <TrendingUp className="h-4 w-4 text-destructive" />
             <span className="text-sm text-foreground/60">
-              <span className="font-semibold text-destructive">+14.8%</span> vs last month (RM
-              1,089)
+              <span className="font-semibold text-destructive">
+                {spendingTrendUp ? "+" : "-"}
+                {Math.abs(spendingChangePercent).toFixed(1)}%
+              </span>{" "}
+              vs last month (RM {lastMonthSpent.toFixed(2)})
             </span>
           </div>
         </div>
@@ -585,7 +620,7 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.04 * index, type: "spring", stiffness: 400, damping: 32 }}
               className={`list-item-glass flex items-center gap-4 p-4 active:bg-brand-purple/8 ${
-                index !== 4 ? "border-b border-[rgba(120,80,220,0.1)]" : ""
+                index !== transactions.slice(0, 5).length - 1 ? "border-b border-[rgba(120,80,220,0.1)]" : ""
               }`}
             >
               <div
@@ -612,6 +647,9 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
               </p>
             </motion.div>
           ))}
+          {transactions.length === 0 && (
+            <div className="p-5 text-sm text-foreground/60">No transactions yet. Start with a top up.</div>
+          )}
         </div>
       </motion.div>
 

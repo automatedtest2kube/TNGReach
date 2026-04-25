@@ -70,17 +70,17 @@ export function IntegratedWalletApp() {
 
   useEffect(() => {
     let alive = true;
-    fetchUserProfile()
+    fetchUserProfile(activeUserId)
       .then((data) => {
         if (alive) setProfile(data);
       })
       .catch(() => {
-        // Keep fallback values when mock/API is unavailable.
+        // Keep fallback values when API is unavailable.
       });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [activeUserId]);
 
   const handleRegistrationComplete = (payload: RegistrationCompletePayload) => {
     if (payload.userId) {
@@ -219,7 +219,7 @@ export function IntegratedWalletApp() {
         <HistoryScreen onBack={handleBack} activeUserId={activeUserId} />
       )}
       {currentScreen === "profile" && (
-        <ProfileScreen onBack={handleBack} onNavigate={handleNavigate} />
+        <ProfileScreen onBack={handleBack} onNavigate={handleNavigate} activeUserId={activeUserId} />
       )}
       {currentScreen === "parking" && <ParkingScreen onBack={handleBack} />}
       {currentScreen === "ai-insights" && (
@@ -231,7 +231,9 @@ export function IntegratedWalletApp() {
       {currentScreen === "reminders" && <RemindersScreen onBack={handleBack} />}
       {currentScreen === "community-support" && <CrowdfundingHubScreen onBack={handleBack} />}
       {currentScreen === "trust-score" && <TrustScoreScreen onBack={handleBack} />}
-      {currentScreen === "family" && <FamilyScreen onBack={handleBack} onNavigate={handleNavigate} />}
+      {currentScreen === "family" && (
+        <FamilyScreen onBack={handleBack} onNavigate={handleNavigate} activeUserId={activeUserId} />
+      )}
       {showBottomNav && (
         <BottomNav
           activeScreen={currentScreen}

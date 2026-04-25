@@ -1,3 +1,5 @@
+import { DEMO_USER_ID, fetchUserSummary } from "@/lib/api/wallet";
+
 export interface UserProfile {
   id: string;
   fullName: string;
@@ -9,8 +11,6 @@ export interface UserProfile {
   walletBalance: number;
   currency: string;
 }
-
-const MOCK_USER_PROFILE_URL = "/mock/user-profile.json";
 
 export const FALLBACK_USER_PROFILE: UserProfile = {
   id: "user-fallback",
@@ -24,16 +24,19 @@ export const FALLBACK_USER_PROFILE: UserProfile = {
   currency: "MYR",
 };
 
-export async function fetchUserProfile(): Promise<UserProfile> {
-  // Placeholder integration point:
-  // Replace this with your backend API call later, e.g.:
-  // const response = await fetch("/api/v1/me");
-  const response = await fetch(MOCK_USER_PROFILE_URL, { method: "GET" });
-  if (!response.ok) {
-    throw new Error("Failed to fetch user profile");
-  }
-  const data = (await response.json()) as UserProfile;
-  return data;
+export async function fetchUserProfile(userId = DEMO_USER_ID): Promise<UserProfile> {
+  const summary = await fetchUserSummary(userId);
+  return {
+    id: String(summary.user.userId),
+    fullName: summary.user.fullName,
+    preferredName: summary.user.fullName.split(" ")[0] || summary.user.fullName,
+    icOrPassportNo: "Not provided",
+    accountMode: "normal",
+    phone: "Not provided",
+    email: summary.user.email,
+    walletBalance: Number(summary.wallet?.balance ?? 0),
+    currency: summary.wallet?.currency || "MYR",
+  };
 }
 
 export function getInitials(name: string): string {

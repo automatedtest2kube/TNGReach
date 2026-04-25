@@ -2,14 +2,9 @@
 
 import {
   ChevronLeft,
-  ShoppingBag,
-  Coffee,
   Plus,
-  Utensils,
-  Car,
   Send,
   Zap,
-  Wifi,
   Filter,
 } from "lucide-react";
 import { useState } from "react";
@@ -35,108 +30,6 @@ interface HistoryScreenProps {
   onBack: () => void;
   activeUserId?: number;
 }
-
-const transactions = [
-  {
-    id: 1,
-    icon: ShoppingBag,
-    name: "Grocery Store",
-    category: "Shopping",
-    date: "Mar 20, 2024",
-    time: "2:30 PM",
-    amount: -45.5,
-    status: "completed",
-    color: "#5896FD",
-  },
-  {
-    id: 2,
-    icon: Coffee,
-    name: "Starbucks",
-    category: "Food & Drink",
-    date: "Mar 20, 2024",
-    time: "10:15 AM",
-    amount: -18.9,
-    status: "completed",
-    color: "#D29922",
-  },
-  {
-    id: 3,
-    icon: Plus,
-    name: "Top Up from Bank",
-    category: "Top Up",
-    date: "Mar 19, 2024",
-    time: "9:00 AM",
-    amount: 500.0,
-    status: "completed",
-    color: "#3FB950",
-  },
-  {
-    id: 4,
-    icon: Utensils,
-    name: "McDonald's",
-    category: "Food & Drink",
-    date: "Mar 19, 2024",
-    time: "12:45 PM",
-    amount: -32.0,
-    status: "completed",
-    color: "#F85149",
-  },
-  {
-    id: 5,
-    icon: Car,
-    name: "Shell Petrol",
-    category: "Transport",
-    date: "Mar 18, 2024",
-    time: "8:30 AM",
-    amount: -120.0,
-    status: "completed",
-    color: "#8B949E",
-  },
-  {
-    id: 6,
-    icon: Send,
-    name: "Transfer to Ahmad",
-    category: "Transfer",
-    date: "Mar 18, 2024",
-    time: "3:00 PM",
-    amount: -100.0,
-    status: "completed",
-    color: "#806EF8",
-  },
-  {
-    id: 7,
-    icon: Zap,
-    name: "TNB Electricity",
-    category: "Bills",
-    date: "Mar 17, 2024",
-    time: "11:00 AM",
-    amount: -156.8,
-    status: "completed",
-    color: "#D29922",
-  },
-  {
-    id: 8,
-    icon: Plus,
-    name: "Top Up from Card",
-    category: "Top Up",
-    date: "Mar 15, 2024",
-    time: "2:00 PM",
-    amount: 200.0,
-    status: "completed",
-    color: "#3FB950",
-  },
-  {
-    id: 9,
-    icon: Wifi,
-    name: "TM Unifi",
-    category: "Bills",
-    date: "Mar 15, 2024",
-    time: "10:00 AM",
-    amount: -149.0,
-    status: "completed",
-    color: "#B0A4FF",
-  },
-];
 
 const filters = ["All", "Income", "Expense", "Transfer", "Bills"];
 
@@ -165,7 +58,7 @@ export function HistoryScreen({ onBack, activeUserId }: HistoryScreenProps) {
         color: kind === "RECEIVE" ? "#3FB950" : kind === "BILL_PAYMENT" ? "#D29922" : "#806EF8",
       };
     }) ?? [];
-  const sourceTransactions = backendTransactions.length > 0 ? backendTransactions : transactions;
+  const sourceTransactions = backendTransactions;
 
   const filteredTransactions = sourceTransactions.filter((tx) => {
     if (activeFilter === "All") return true;
@@ -254,6 +147,11 @@ export function HistoryScreen({ onBack, activeUserId }: HistoryScreenProps) {
 
       {/* Transactions List */}
       <div className="flex-1 overflow-auto px-5">
+        {sourceTransactions.length === 0 && (
+          <div className="card-glass rounded-2xl p-5 text-sm text-foreground/60">
+            No transactions found for this account yet.
+          </div>
+        )}
         {Object.entries(groupedTransactions).map(([date, txs], groupIdx) => (
           <motion.div
             key={date}
