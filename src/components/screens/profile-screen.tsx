@@ -15,9 +15,6 @@ import {
   Award,
   Heart,
   Sparkles,
-  Type,
-  Volume2,
-  MessageCircle,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
@@ -48,13 +45,8 @@ interface ProfileScreenProps {
 export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScreenProps) {
   const {
     elderlyMode,
-    setElderlyMode,
     language,
     setLanguage,
-    voiceEnabled,
-    setVoiceEnabled,
-    chatBubbleEnabled,
-    setChatBubbleEnabled,
     t,
   } = useAccessibility();
   const [notifications, setNotifications] = useState(true);
@@ -85,13 +77,19 @@ export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScree
 
   const menuItems = [
     { icon: User, label: "Personal Information", value: "", action: () => {} },
+    { icon: Users, label: t("familyModule"), value: "", action: () => onNavigate?.("family") },
     {
       icon: Globe,
       label: t("language"),
       value: currentLanguage,
       action: () => setShowLanguageModal(true),
     },
-    { icon: Users, label: t("familyModule"), value: "", action: () => onNavigate?.("family") },
+    {
+      icon: Eye,
+      label: t("accessibilitySettings"),
+      value: "",
+      action: () => onNavigate?.("accessibility"),
+    },
     {
       icon: Award,
       label: t("trustScore"),
@@ -173,82 +171,6 @@ export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScree
       </motion.div>
 
       <div className="my-2 border-b border-brand-purple/10" />
-
-      <motion.div variants={pageItem} className="py-4">
-        <h3
-          className={`section-title mb-4 ${elderlyMode ? "text-xl" : "text-lg"}`}
-        >
-          {t("accessibilitySettings")}
-        </h3>
-
-        <div className="flex flex-col gap-2">
-          {[
-            {
-              key: "elderly",
-              icon: Eye,
-              iconStyle: { background: "linear-gradient(135deg, oklch(0.6 0.15 295 / 0.25), oklch(0.6 0.15 295 / 0.08))" },
-              title: t("elderlyMode"),
-              sub: "Larger text and buttons",
-              checked: elderlyMode,
-              onChange: setElderlyMode,
-            },
-            {
-              key: "large",
-              icon: Type,
-              iconStyle: { background: "linear-gradient(135deg, oklch(0.62 0.18 265 / 0.25), oklch(0.62 0.18 265 / 0.08))" },
-              title: "Large Text",
-              sub: "Increase font size",
-              checked: elderlyMode,
-              onChange: setElderlyMode,
-            },
-            {
-              key: "voice",
-              icon: Volume2,
-              iconStyle: { background: "linear-gradient(135deg, oklch(0.75 0.12 280 / 0.3), oklch(0.75 0.12 280 / 0.1))" },
-              title: t("voiceAssistant"),
-              sub: "Voice guidance enabled",
-              checked: voiceEnabled,
-              onChange: setVoiceEnabled,
-            },
-            {
-              key: "bubble",
-              icon: MessageCircle,
-              iconStyle: { background: "linear-gradient(135deg, oklch(0.65 0.16 150 / 0.28), oklch(0.65 0.16 150 / 0.1))" },
-              title: t("aiBubble"),
-              sub: "Floating AI assistant button",
-              checked: chatBubbleEnabled,
-              onChange: setChatBubbleEnabled,
-            },
-          ].map((row) => {
-            const RowIcon = row.icon;
-            return (
-              <motion.div
-                key={row.key}
-                className="card-glass flex items-center justify-between rounded-2xl p-3 shadow-soft ring-1 ring-white/20 active:bg-brand-purple/5"
-                whileTap={{ scale: 0.99 }}
-              >
-                <div className="flex items-center gap-3">
-                  <div
-                    className="flex h-10 w-10 items-center justify-center rounded-xl"
-                    style={row.iconStyle}
-                  >
-                    <RowIcon className="h-5 w-5 text-brand-purple" />
-                  </div>
-                  <div>
-                    <span className={`font-medium text-foreground ${elderlyMode ? "text-lg" : ""}`}>
-                      {row.title}
-                    </span>
-                    <p className={`text-foreground/50 ${elderlyMode ? "text-base" : "text-sm"}`}>
-                      {row.sub}
-                    </p>
-                  </div>
-                </div>
-                <Switch checked={row.checked} onCheckedChange={row.onChange} />
-              </motion.div>
-            );
-          })}
-        </div>
-      </motion.div>
 
       <div className="my-1 border-b border-brand-purple/10" />
 

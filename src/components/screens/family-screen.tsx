@@ -21,9 +21,12 @@ import { Switch } from "@/components/ui/switch";
 import { useAccessibility } from "@/context/accessibility-context";
 import { FALLBACK_USER_PROFILE, fetchUserProfile } from "@/lib/user-profile";
 import {
+  addFamilyMember,
   createFamilyInviteQrValue,
   createFamilyInvitePayload,
+  extractInviteCodeFromQrValue,
   getFamilyMembers,
+  lookupFamilyInviteByCode,
   parseFamilyInvitePayload,
   registerFamilyInvite,
   setLatestFamilyInvitePayload,
@@ -38,6 +41,11 @@ interface FamilyScreenProps {
 }
 
 type Step = "dashboard" | "requests" | "monitoring" | "permissions";
+type ScanFeedback = {
+  title: string;
+  message: string;
+  tone: "success" | "error";
+};
 
 const pendingRequests = [
   {
@@ -62,7 +70,11 @@ export function FamilyScreen({ onBack, onNavigate, activeUserId }: FamilyScreenP
   const [showLinkQrModal, setShowLinkQrModal] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [inviteCode, setInviteCode] = useState("");
+  const [isLinkingFamily, setIsLinkingFamily] = useState(false);
+  const [scanFeedback, setScanFeedback] = useState<ScanFeedback | null>(null);
   const { elderlyMode, t } = useAccessibility();
+  const nativeBridgeAvailable =
+    typeof window !== "undefined" && typeof window.ReactNativeWebView?.postMessage === "function";
   const linkPayload = useMemo(
     () => createFamilyInvitePayload(profile.fullName, profile.phone),
     [profile.fullName, profile.phone],
@@ -117,6 +129,84 @@ export function FamilyScreen({ onBack, onNavigate, activeUserId }: FamilyScreenP
       `Invite code: ${inviteCode}\n\n` +
       `Open TNG Reach > Scan & Pay > Scan Family QR > Enter Invite Code.`;
     window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
+  };
+
+  const autoLinkByInviteCode = async (codeRaw: string) => {
+    const normalizedCode = codeRaw.trim().toUpperCase();
+    if (!normalizedCode) return;
+    setIsLinkingFamily(true);
+    try {
+      const invite = await lookupFamilyInviteByCode(normalizedCode);
+      if (!invite) {
+        setScanFeedback({
+          title: "Invite Code Not Found",
+          message: "Ask your family member for a valid invite code and try again.",
+          tone: "error",
+        });
+        return;
+      }
+      const updated = addFamilyMember({
+        name: invite.inviterName,
+        phone: invite.inviterPhone,
+        relation: "Family",
+      });
+      setLinkedMembers(updated);
+      setScanFeedback({
+        title: "Family Linked",
+        message: `${invite.inviterName} has been linked successfully.`,
+        tone: "success",
+      });
+    } finally {
+      setIsLinkingFamily(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!nativeBridgeAvailable) return;
+    const onNativeQrResult = (event: Event) => {
+      const custom = event as CustomEvent<{ rawValue?: string }>;
+      const rawValue = custom.detail?.rawValue;
+      if (typeof rawValue !== "string" || rawValue.length === 0) return;
+      const inviteCodeFromQr = extractInviteCodeFromQrValue(rawValue);
+      if (!inviteCodeFromQr) {
+        setScanFeedback({
+          title: "Invalid Family QR",
+          message: "Please scan a Family QR code from a linked family member.",
+          tone: "error",
+        });
+        return;
+      }
+      void autoLinkByInviteCode(inviteCodeFromQr);
+    };
+
+    const onNativeQrError = (event: Event) => {
+      const custom = event as CustomEvent<{ error?: string }>;
+      if (!custom.detail?.error) return;
+      setScanFeedback({
+        title: "Unable to Scan",
+        message: custom.detail.error,
+        tone: "error",
+      });
+    };
+
+    window.addEventListener("native-qr-result", onNativeQrResult as EventListener);
+    window.addEventListener("native-qr-error", onNativeQrError as EventListener);
+    return () => {
+      window.removeEventListener("native-qr-result", onNativeQrResult as EventListener);
+      window.removeEventListener("native-qr-error", onNativeQrError as EventListener);
+    };
+  }, [nativeBridgeAvailable]);
+
+  const handleFamilyScan = () => {
+    if (nativeBridgeAvailable) {
+      const payload = {
+        type: "OPEN_NATIVE_QR_SCANNER",
+        payload: {},
+      };
+      window.ReactNativeWebView?.postMessage(JSON.stringify(payload));
+      return;
+    }
+    onNavigate?.("family-scan");
   };
 
   // Permissions Screen
@@ -304,7 +394,7 @@ export function FamilyScreen({ onBack, onNavigate, activeUserId }: FamilyScreenP
         <div className="grid grid-cols-3 gap-3 mb-6">
           <button
             onClick={() => setStep("requests")}
-            className="p-4 bg-card rounded-2xl text-left hover:shadow-md transition-shadow relative"
+            className="relative flex flex-col items-center p-4 bg-card rounded-2xl text-center hover:shadow-md transition-shadow"
           >
             {pendingRequests.length > 0 && (
               <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-danger flex items-center justify-center">
@@ -320,20 +410,21 @@ export function FamilyScreen({ onBack, onNavigate, activeUserId }: FamilyScreenP
           </button>
           <button
             onClick={() => setStep("permissions")}
-            className="p-4 bg-card rounded-2xl text-left hover:shadow-md transition-shadow"
+            className="flex flex-col items-center p-4 bg-card rounded-2xl text-center hover:shadow-md transition-shadow"
           >
-            <Settings className="w-6 h-6 text-accent mb-2" />
+            <Settings className="w-6 h-6 text-brand-purple mb-2" />
             <p className={`font-medium text-foreground ${elderlyMode ? "text-lg" : ""}`}>
               Permissions
             </p>
           </button>
           <button
-            onClick={() => onNavigate?.("family-scan")}
-            className="p-4 bg-card rounded-2xl text-left hover:shadow-md transition-shadow"
+            onClick={handleFamilyScan}
+            disabled={isLinkingFamily}
+            className="flex flex-col items-center p-4 bg-card rounded-2xl text-center hover:shadow-md transition-shadow"
           >
             <QrCode className="w-6 h-6 text-brand-blue mb-2" />
             <p className={`font-medium text-foreground ${elderlyMode ? "text-lg" : ""}`}>
-              Family Scan
+              Scan
             </p>
           </button>
         </div>
@@ -470,6 +561,35 @@ export function FamilyScreen({ onBack, onNavigate, activeUserId }: FamilyScreenP
                 Done
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {scanFeedback && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center">
+          <div className="w-full max-w-md rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-foreground">{scanFeedback.title}</h3>
+              <button
+                type="button"
+                onClick={() => setScanFeedback(null)}
+                className="rounded-full p-2 text-foreground/55 hover:bg-muted"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mb-4 text-sm text-foreground/70">{scanFeedback.message}</p>
+            <button
+              type="button"
+              onClick={() => setScanFeedback(null)}
+              className={`w-full rounded-xl px-4 py-3 text-sm font-semibold text-white ${
+                scanFeedback.tone === "success"
+                  ? "bg-[linear-gradient(135deg,#3FB950_0%,#2EA043_100%)]"
+                  : "bg-[linear-gradient(135deg,#5896FD_0%,#806EF8_100%)]"
+              }`}
+            >
+              OK
+            </button>
           </div>
         </div>
       )}

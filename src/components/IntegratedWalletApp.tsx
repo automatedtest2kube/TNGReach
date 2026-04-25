@@ -8,6 +8,7 @@ import { ScanPayScreen } from "@/components/screens/scan-pay-screen";
 import { BillsScreen } from "@/components/screens/bills-screen";
 import { HistoryScreen } from "@/components/screens/history-screen";
 import { ProfileScreen } from "@/components/screens/profile-screen";
+import { AccessibilityScreen } from "@/components/screens/accessibility-screen";
 import { ParkingScreen } from "@/components/screens/parking-screen";
 import { AIInsightsScreen } from "@/components/screens/ai-insights-screen";
 import { AIVoiceScreen } from "@/components/screens/ai-voice-screen";
@@ -222,6 +223,7 @@ export function IntegratedWalletApp() {
       {currentScreen === "profile" && (
         <ProfileScreen onBack={handleBack} onNavigate={handleNavigate} activeUserId={activeUserId} />
       )}
+      {currentScreen === "accessibility" && <AccessibilityScreen onBack={() => handleNavigate("profile")} />}
       {currentScreen === "parking" && <ParkingScreen onBack={handleBack} />}
       {currentScreen === "ai-insights" && (
         <AIInsightsScreen onBack={handleBack} onNavigate={handleNavigate} />

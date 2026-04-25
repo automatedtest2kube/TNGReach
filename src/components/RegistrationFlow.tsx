@@ -6,6 +6,7 @@ import { SpeechBubble } from "./SpeechBubble";
 import { ProgressDots } from "./ProgressDots";
 import { CameraCapture } from "./CameraCapture";
 import { signIn, signUp } from "@/lib/api/auth";
+import { DEMO_USER_ID } from "@/lib/api/wallet";
 
 type Lang = "en" | "bm" | "zh";
 type AccountType = "normal" | "simple";
@@ -292,7 +293,18 @@ export function RegistrationFlow({
         </div>
       ) : (
         <div className="relative z-10 mt-1.5 flex flex-col items-center px-6">
-          <Mascot pose={cfg.pose} mood={cfg.mood} size={138} />
+          {step === 0 ? (
+            <button
+              type="button"
+              onClick={() => onComplete?.({ skipped: true, userId: DEMO_USER_ID })}
+              className="cursor-pointer rounded-2xl"
+              aria-label="Go to login"
+            >
+              <Mascot pose={cfg.pose} mood={cfg.mood} size={138} />
+            </button>
+          ) : (
+            <Mascot pose={cfg.pose} mood={cfg.mood} size={138} />
+          )}
           <SpeechBubble text={cfg.bubble} className="-mt-2" />
         </div>
       )}
@@ -347,7 +359,7 @@ export function RegistrationFlow({
                     <button
                       type="button"
                       onClick={() => setAuthMode("signup")}
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${authMode === "signup" ? "bg-brand-purple text-white" : "bg-white text-brand-purple"}`}
+                      className={`hidden rounded-full px-3 py-1 text-xs font-semibold ${authMode === "signup" ? "bg-brand-purple text-white" : "bg-white text-brand-purple"}`}
                     >
                       Sign up
                     </button>
@@ -415,7 +427,10 @@ export function RegistrationFlow({
                   return (
                     <button
                       key={l.id}
-                      onClick={() => setLang(l.id)}
+                      onClick={() => {
+                        setLang(l.id);
+                        setStep((s) => Math.min(s + 1, TOTAL - 1));
+                      }}
                       style={{ animationDelay: `${i * 60}ms` }}
                       className={`group animate-pop flex w-full items-center gap-3 rounded-2xl border-2 p-3.5 text-left transition-all duration-300 ${
                         active
@@ -710,14 +725,16 @@ export function RegistrationFlow({
               >
                 Sign in
               </button>
-              {" · "}
-              <button
-                type="button"
-                onClick={() => setAuthMode("signup")}
-                className="font-bold text-brand-purple underline-offset-2 hover:underline"
-              >
-                Sign up
-              </button>
+              <span className="hidden">
+                {" · "}
+                <button
+                  type="button"
+                  onClick={() => setAuthMode("signup")}
+                  className="font-bold text-brand-purple underline-offset-2 hover:underline"
+                >
+                  Sign up
+                </button>
+              </span>
             </p>
           </div>
         )}

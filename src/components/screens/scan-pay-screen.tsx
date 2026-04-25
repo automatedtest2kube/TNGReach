@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Flashlight, Image, Check, Store, FileText, ChevronLeft } from "lucide-react";
+import { ArrowLeft, Flashlight, Image, Check, Store, FileText, ChevronLeft, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useAccessibility } from "@/context/accessibility-context";
@@ -23,6 +23,11 @@ interface ScanPayScreenProps {
 
 type Step = "scan" | "detected" | "confirm" | "success";
 type ScanTarget = "payment" | "family";
+type FeedbackModal = {
+  title: string;
+  message: string;
+  tone: "success" | "error";
+};
 
 export function ScanPayScreen({ onBack, scanMode = "payment" }: ScanPayScreenProps) {
   const [step, setStep] = useState<Step>("scan");
@@ -33,6 +38,7 @@ export function ScanPayScreen({ onBack, scanMode = "payment" }: ScanPayScreenPro
   const [scanTarget, setScanTarget] = useState<ScanTarget>(scanMode);
   const [cameraReady, setCameraReady] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [feedbackModal, setFeedbackModal] = useState<FeedbackModal | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanLoopRef = useRef<number | null>(null);
@@ -53,7 +59,11 @@ export function ScanPayScreen({ onBack, scanMode = "payment" }: ScanPayScreenPro
     try {
       const invite = await lookupFamilyInviteByCode(inviteCode);
       if (!invite) {
-        window.alert("Invite code not found. Ask family member for a valid code.");
+        setFeedbackModal({
+          title: "Invite Code Not Found",
+          message: "Ask your family member for a valid invite code and try again.",
+          tone: "error",
+        });
         return false;
       }
       addFamilyMember({
@@ -61,7 +71,11 @@ export function ScanPayScreen({ onBack, scanMode = "payment" }: ScanPayScreenPro
         phone: invite.inviterPhone,
         relation: "Family",
       });
-      window.alert(`Family linked: ${invite.inviterName}`);
+      setFeedbackModal({
+        title: "Family Linked",
+        message: `${invite.inviterName} has been linked successfully.`,
+        tone: "success",
+      });
       return true;
     } finally {
       setIsLinkingFamily(false);
@@ -80,7 +94,11 @@ export function ScanPayScreen({ onBack, scanMode = "payment" }: ScanPayScreenPro
       return;
     }
     if (scanMode === "family" || scanTarget === "family") {
-      window.alert("This QR is not a family invite QR. Please scan the Family QR or enter invite code.");
+      setFeedbackModal({
+        title: "Invalid Family QR",
+        message: "Please scan a Family QR code or enter a valid invite code.",
+        tone: "error",
+      });
       return;
     }
     // Fallback: treat non-family QR as normal payment QR.
@@ -440,7 +458,8 @@ export function ScanPayScreen({ onBack, scanMode = "payment" }: ScanPayScreenPro
 
   // Camera Scan Screen — light page + dark viewfinder
   return (
-    <div className="safe-top flex min-h-screen flex-1 flex-col pb-28" style={pageBg}>
+    <>
+      <div className="safe-top flex min-h-screen flex-1 flex-col pb-28" style={pageBg}>
       <motion.div
         className="flex items-center justify-between px-5 py-4"
         initial={{ opacity: 0, y: -8 }}
@@ -580,6 +599,36 @@ export function ScanPayScreen({ onBack, scanMode = "payment" }: ScanPayScreenPro
           </div>
         )}
       </div>
-    </div>
+      </div>
+      {feedbackModal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center">
+          <div className="w-full max-w-md rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-foreground">{feedbackModal.title}</h3>
+              <button
+                type="button"
+                onClick={() => setFeedbackModal(null)}
+                className="rounded-full p-2 text-foreground/55 hover:bg-muted"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mb-4 text-sm text-foreground/70">{feedbackModal.message}</p>
+            <button
+              type="button"
+              onClick={() => setFeedbackModal(null)}
+              className={`w-full rounded-xl px-4 py-3 text-sm font-semibold text-white ${
+                feedbackModal.tone === "success"
+                  ? "bg-[linear-gradient(135deg,#3FB950_0%,#2EA043_100%)]"
+                  : "bg-[linear-gradient(135deg,#5896FD_0%,#806EF8_100%)]"
+              }`}
+            >
+              OK
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
