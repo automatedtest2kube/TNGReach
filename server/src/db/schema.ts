@@ -35,8 +35,7 @@ export type NewCloudJobRow = typeof cloudJobs.$inferInsert;
 export const userProfile = mysqlTable("user_profile", {
   userId: int("user_id").autoincrement().primaryKey(),
   fullName: varchar("full_name", { length: 255 }).notNull(),
-  email: varchar("email", { length: 255 }).notNull().unique(),
-  passwordHash: varchar("password_hash", { length: 255 }),
+  email: varchar("email", { length: 255 }).unique(),
   phoneNumber: varchar("phone_number", { length: 20 }),
   dateOfBirth: date("date_of_birth"),
   address: text("address"),
