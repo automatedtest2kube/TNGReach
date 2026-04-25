@@ -64,6 +64,7 @@ export function RegistrationFlow({
 
   const handleIcCapture = async (dataUrl: string) => {
     setIcImage(dataUrl);
+    setStep((s) => (s < 4 ? 4 : s));
     setScanning(true);
     setScanError(null);
     setScanWarning(null);
@@ -76,9 +77,16 @@ export function RegistrationFlow({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageRef: dataUrl }),
       });
-      const data = await res.json();
+      const rawBody = await res.text();
+      const data = rawBody ? JSON.parse(rawBody) : null;
       if (!res.ok) {
-        setScanError(data?.message ?? "Scan failed. Please retake the photo.");
+        const errorFromApi =
+          data?.message ??
+          data?.error ??
+          (res.status === 413
+            ? "Image is too large. Please retake with better framing and less zoom."
+            : null);
+        setScanError(errorFromApi ?? `Scan failed (${res.status}). Please retake the photo.`);
         return;
       }
       const { extracted } = data;
@@ -91,8 +99,14 @@ export function RegistrationFlow({
           .join(" and ");
         setScanWarning(`Could not auto-detect ${missing}. Please fill in manually.`);
       }
-    } catch {
-      setScanError("Could not reach the server. Check your connection.");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      const isParseFailure = message.includes("JSON");
+      setScanError(
+        isParseFailure
+          ? "Scan service returned an invalid response. Please retry."
+          : "Could not reach the server. Check your connection.",
+      );
     } finally {
       setScanning(false);
     }

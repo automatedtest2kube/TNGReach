@@ -9,6 +9,15 @@ interface Props {
   onRetake: () => void;
   hint?: string;
   allowUpload?: boolean; // show "Upload from device" option
+  overlay?: React.ReactNode;
+}
+
+declare global {
+  interface Window {
+    ReactNativeWebView?: {
+      postMessage: (message: string) => void;
+    };
+  }
 }
 
 /**
@@ -24,12 +33,93 @@ export function CameraCapture({
   onRetake,
   hint,
   allowUpload = false,
+  overlay,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const usesNativeBridge =
+    typeof window !== "undefined" && typeof window.ReactNativeWebView?.postMessage === "function";
+  const MAX_IMAGE_DIMENSION = 1920;
+  const CARD_GUIDE_FILL_RATIO = 0.86;
+
+  const parseAspectRatio = (value: string) => {
+    const normalized = value.replace(/\s+/g, "");
+    if (normalized.includes("/")) {
+      const [numRaw, denRaw] = normalized.split("/");
+      const num = Number(numRaw);
+      const den = Number(denRaw);
+      if (Number.isFinite(num) && Number.isFinite(den) && num > 0 && den > 0) {
+        return num / den;
+      }
+    }
+    const numeric = Number(normalized);
+    if (Number.isFinite(numeric) && numeric > 0) return numeric;
+    return 1.6;
+  };
+
+  const optimiseImageDataUrl = async (inputDataUrl: string) => {
+    if (!inputDataUrl.startsWith("data:image/")) return inputDataUrl;
+
+    try {
+      const optimised = await new Promise<string>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          const srcW = img.naturalWidth || img.width;
+          const srcH = img.naturalHeight || img.height;
+          const shouldGuideCrop = shape === "rect" && facingMode === "environment";
+          const ratio = parseAspectRatio(aspect);
+
+          let cropW = srcW;
+          let cropH = srcH;
+          let cropX = 0;
+          let cropY = 0;
+
+          if (shouldGuideCrop) {
+            const widthByHeight = srcH * ratio;
+            const heightByWidth = srcW / ratio;
+            if (widthByHeight <= srcW) {
+              cropW = widthByHeight;
+              cropH = srcH;
+            } else {
+              cropW = srcW;
+              cropH = heightByWidth;
+            }
+
+            cropW = Math.round(cropW * CARD_GUIDE_FILL_RATIO);
+            cropH = Math.round(cropH * CARD_GUIDE_FILL_RATIO);
+            cropX = Math.max(0, Math.round((srcW - cropW) / 2));
+            cropY = Math.max(0, Math.round((srcH - cropH) / 2));
+          }
+
+          const scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(cropW, cropH));
+          const targetW = Math.max(1, Math.round(cropW * scale));
+          const targetH = Math.max(1, Math.round(cropH * scale));
+
+          const canvas = document.createElement("canvas");
+          canvas.width = targetW;
+          canvas.height = targetH;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve(inputDataUrl);
+            return;
+          }
+
+          ctx.drawImage(img, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
+          const output = canvas.toDataURL("image/jpeg", 0.82);
+          resolve(output.length < inputDataUrl.length ? output : inputDataUrl);
+        };
+        img.onerror = () => resolve(inputDataUrl);
+        img.src = inputDataUrl;
+      });
+
+      return optimised;
+    } catch {
+      return inputDataUrl;
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -39,6 +129,28 @@ export function CameraCapture({
       streamRef.current = null;
       setReady(false);
       return;
+    }
+
+    if (usesNativeBridge) {
+      setError(null);
+      setReady(true);
+      const handleNativeResult = async (event: Event) => {
+        const detail = (event as CustomEvent<{ dataUrl?: string }>).detail;
+        if (typeof detail?.dataUrl === "string" && detail.dataUrl.length > 0) {
+          const optimised = await optimiseImageDataUrl(detail.dataUrl);
+          onCapture(optimised);
+        }
+      };
+      const handleNativeError = (event: Event) => {
+        const detail = (event as CustomEvent<{ error?: string }>).detail;
+        setError(detail?.error ?? "Unable to capture photo on device.");
+      };
+      window.addEventListener("native-camera-result", handleNativeResult);
+      window.addEventListener("native-camera-error", handleNativeError);
+      return () => {
+        window.removeEventListener("native-camera-result", handleNativeResult);
+        window.removeEventListener("native-camera-error", handleNativeError);
+      };
     }
 
     const start = async () => {
@@ -76,9 +188,20 @@ export function CameraCapture({
       streamRef.current?.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     };
-  }, [facingMode, captured]);
+  }, [captured, facingMode, onCapture, usesNativeBridge]);
 
-  const snap = () => {
+  const snap = async () => {
+    if (usesNativeBridge) {
+      setError(null);
+      window.ReactNativeWebView?.postMessage(
+        JSON.stringify({
+          type: "OPEN_NATIVE_CAMERA",
+          payload: { facingMode },
+        }),
+      );
+      return;
+    }
+
     const video = videoRef.current;
     if (!video) return;
     const w = video.videoWidth || 1280;
@@ -94,16 +217,20 @@ export function CameraCapture({
       ctx.scale(-1, 1);
     }
     ctx.drawImage(video, 0, 0, w, h);
-    onCapture(canvas.toDataURL("image/jpeg", 0.9));
+    const optimised = await optimiseImageDataUrl(canvas.toDataURL("image/jpeg", 0.9));
+    onCapture(optimised);
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const result = ev.target?.result;
-      if (typeof result === "string") onCapture(result);
+      if (typeof result === "string") {
+        const optimised = await optimiseImageDataUrl(result);
+        onCapture(optimised);
+      }
     };
     reader.readAsDataURL(file);
     e.target.value = "";
@@ -180,6 +307,9 @@ export function CameraCapture({
               <div className="pointer-events-none absolute inset-x-0 bottom-3 text-center text-[11px] font-medium text-white/85">
                 {hint}
               </div>
+            )}
+            {overlay && (
+              <div className="pointer-events-none absolute inset-x-3 bottom-3">{overlay}</div>
             )}
           </>
         )}
