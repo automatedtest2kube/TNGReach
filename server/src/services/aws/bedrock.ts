@@ -102,7 +102,7 @@ export async function chatWithBedrock(args: {
     },
   });
 
-  const maxAttempts = 4;
+  const maxAttempts = 6;
   let response;
   let lastError: unknown = null;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -117,7 +117,7 @@ export async function chatWithBedrock(args: {
       if (!canRetry) {
         break;
       }
-      const backoffMs = 300 * 2 ** (attempt - 1) + Math.floor(Math.random() * 150);
+      const backoffMs = Math.min(1200 * 2 ** (attempt - 1), 12000) + Math.floor(Math.random() * 300);
       await sleep(backoffMs);
     }
   }

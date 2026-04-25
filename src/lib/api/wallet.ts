@@ -10,6 +10,7 @@ export type TransactionRow = {
   transactionType: "SEND" | "RECEIVE" | "BILL_PAYMENT";
   transactionStatus: "PENDING" | "COMPLETED" | "FAILED";
   transactionDate: string;
+  timestampMs?: number | null;
   description: string | null;
 };
 

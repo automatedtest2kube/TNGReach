@@ -64,7 +64,9 @@ function parseSendIntent(text: string): { amount: number; target: string } | nul
   if (!hasSendKeyword) return null;
   if (/\bparking|parkir\b/i.test(text)) return null;
 
-  const amountMatch = text.match(/(?:rm|myr)\s*([\d]+(?:\.\d{1,2})?)|([\d]+(?:\.\d{1,2})?)\s*(?:rm|myr)\b/i);
+  const amountMatch = text.match(
+    /(?:rm|myr|ringgit)\s*([\d]+(?:\.\d{1,2})?)|([\d]+(?:\.\d{1,2})?)\s*(?:rm|myr|ringgit)\b/i,
+  );
   if (!amountMatch) return null;
   const amount = Number.parseFloat(amountMatch[1] ?? amountMatch[2] ?? "0");
   if (!Number.isFinite(amount) || amount <= 0) return null;
@@ -74,7 +76,9 @@ function parseSendIntent(text: string): { amount: number; target: string } | nul
   if (explicitTarget?.[1]) {
     target = cleanTargetName(explicitTarget[1]);
   } else {
-    const sendThenName = text.match(/\b(?:send|transfer|pay)\s+([a-z][a-z\s.'-]{1,60})\s+(?:rm|myr)?\s*[\d]/i);
+    const sendThenName = text.match(
+      /\b(?:send|transfer|pay)\s+([a-z][a-z\s.'-]{1,60})\s+(?:rm|myr|ringgit)?\s*[\d]/i,
+    );
     if (sendThenName?.[1]) {
       target = cleanTargetName(sendThenName[1]);
     }
@@ -89,7 +93,7 @@ function parseSendIntent(text: string): { amount: number; target: string } | nul
 function parseParkingIntent(text: string): { amount: number } | null {
   const hasParkingKeyword = /\b(parking|parkir)\b/i.test(text);
   if (!hasParkingKeyword) return null;
-  const rmAmount = text.match(/(?:rm|myr)\s*([\d]+(?:\.\d{1,2})?)/i);
+  const rmAmount = text.match(/(?:rm|myr|ringgit)\s*([\d]+(?:\.\d{1,2})?)/i);
   const amount = rmAmount ? Number.parseFloat(rmAmount[1] ?? "0") : 6;
   if (!Number.isFinite(amount) || amount <= 0) return null;
   return { amount };
@@ -153,6 +157,7 @@ chatRoutes.post("/chat", async (c) => {
         amount: sendIntent.amount.toFixed(2),
         transactionType: "SEND",
         transactionStatus: "COMPLETED",
+        timestampMs: Date.now(),
         description: `Chat transfer to ${receiver.fullName}`,
       });
 
@@ -193,6 +198,7 @@ chatRoutes.post("/chat", async (c) => {
         amount: parkingIntent.amount.toFixed(2),
         transactionType: "BILL_PAYMENT",
         transactionStatus: "COMPLETED",
+        timestampMs: Date.now(),
         description: "Parking payment via chatbot",
         merchant: "City Parking",
         category: "Parking",

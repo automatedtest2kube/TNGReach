@@ -13,6 +13,7 @@ interface AICommandCenterProps {
   currentScreen?: string;
   activeUserId?: number;
   userDisplayName?: string;
+  onWalletChanged?: () => void;
 }
 
 interface Message {
@@ -78,6 +79,7 @@ export function AICommandCenter({
   currentScreen,
   activeUserId,
   userDisplayName,
+  onWalletChanged,
 }: AICommandCenterProps) {
   const [input, setInput] = useState("");
   const [isListening, setIsListening] = useState(false);
@@ -204,6 +206,9 @@ export function AICommandCenter({
           timestamp: new Date(),
         },
       ]);
+      if (res.action === "send_money" || res.action === "pay_parking") {
+        onWalletChanged?.();
+      }
       if (res.action === "pay_parking" && onNavigate) {
         onNavigate("parking");
       }
