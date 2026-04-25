@@ -1,9 +1,14 @@
 "use client";
 
 import { ArrowLeft, Flashlight, Image, Check, Store, FileText, ChevronLeft } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useAccessibility } from "@/context/accessibility-context";
+import {
+  addFamilyMember,
+  extractInviteCodeFromQrValue,
+  lookupFamilyInviteByCode,
+} from "@/lib/family-link";
 
 const pageBg = {
   background:
@@ -13,21 +18,180 @@ const pageBg = {
 interface ScanPayScreenProps {
   onBack: () => void;
   onNavigate?: (screen: string) => void;
+  scanMode?: "payment" | "family";
 }
 
 type Step = "scan" | "detected" | "confirm" | "success";
+type ScanTarget = "payment" | "family";
 
-export function ScanPayScreen({ onBack }: ScanPayScreenProps) {
+export function ScanPayScreen({ onBack, scanMode = "payment" }: ScanPayScreenProps) {
   const [step, setStep] = useState<Step>("scan");
   const [flashOn, setFlashOn] = useState(false);
   const [amount, setAmount] = useState("25.00");
+  const [isLinkingFamily, setIsLinkingFamily] = useState(false);
+  const [inviteCodeInput, setInviteCodeInput] = useState("");
+  const [scanTarget, setScanTarget] = useState<ScanTarget>(scanMode);
+  const [cameraReady, setCameraReady] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanLoopRef = useRef<number | null>(null);
   const { isElderlyMode, t } = useAccessibility();
+  const nativeBridgeAvailable =
+    typeof window !== "undefined" && typeof window.ReactNativeWebView?.postMessage === "function";
 
   const merchant = {
     name: "Kedai Kopi Selemat",
     id: "MER-2024-88721",
     type: "Food & Beverage",
   };
+
+  const autoLinkByInviteCode = async (codeRaw: string) => {
+    const inviteCode = codeRaw.trim().toUpperCase();
+    if (!inviteCode) return false;
+    setIsLinkingFamily(true);
+    try {
+      const invite = await lookupFamilyInviteByCode(inviteCode);
+      if (!invite) {
+        window.alert("Invite code not found. Ask family member for a valid code.");
+        return false;
+      }
+      addFamilyMember({
+        name: invite.inviterName,
+        phone: invite.inviterPhone,
+        relation: "Family",
+      });
+      window.alert(`Family linked: ${invite.inviterName}`);
+      return true;
+    } finally {
+      setIsLinkingFamily(false);
+    }
+  };
+
+  const handleDetectedQr = async (rawValue: string) => {
+    if (scanMode === "payment") {
+      setStep("detected");
+      return;
+    }
+    const inviteCodeFromQr = extractInviteCodeFromQrValue(rawValue);
+    if (inviteCodeFromQr) {
+      const linked = await autoLinkByInviteCode(inviteCodeFromQr);
+      if (!linked) return;
+      return;
+    }
+    if (scanMode === "family" || scanTarget === "family") {
+      window.alert("This QR is not a family invite QR. Please scan the Family QR or enter invite code.");
+      return;
+    }
+    // Fallback: treat non-family QR as normal payment QR.
+    setStep("detected");
+  };
+
+  const handleUseInviteCode = () => {
+    if (!inviteCodeInput.trim()) return;
+    void autoLinkByInviteCode(inviteCodeInput);
+  };
+
+  const requestNativeQrScanner = () => {
+    if (!nativeBridgeAvailable) return;
+    const payload = {
+      type: "OPEN_NATIVE_QR_SCANNER",
+      payload: {},
+    };
+    window.ReactNativeWebView?.postMessage(JSON.stringify(payload));
+  };
+
+  useEffect(() => {
+    if (step !== "scan") return;
+    if (nativeBridgeAvailable) {
+      requestNativeQrScanner();
+      return;
+    }
+    let cancelled = false;
+
+    const stopScan = () => {
+      if (scanLoopRef.current) {
+        window.clearInterval(scanLoopRef.current);
+        scanLoopRef.current = null;
+      }
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setCameraReady(false);
+    };
+
+    const start = async () => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          setScanError("Camera scanning is not supported on this device/browser.");
+          return;
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+          audio: false,
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        streamRef.current = stream;
+        const video = videoRef.current;
+        if (!video) return;
+        video.srcObject = stream;
+        await video.play().catch(() => {});
+        setCameraReady(true);
+        setScanError(null);
+
+        if (!("BarcodeDetector" in window)) {
+          setScanError("QR detection is unavailable here. Use invite code below.");
+          return;
+        }
+        const detector = new window.BarcodeDetector({ formats: ["qr_code"] });
+        scanLoopRef.current = window.setInterval(async () => {
+          if (!videoRef.current || isLinkingFamily) return;
+          try {
+            const results = await detector.detect(videoRef.current);
+            const first = results[0]?.rawValue;
+            if (first) {
+              stopScan();
+              void handleDetectedQr(first);
+            }
+          } catch {
+            // Keep trying; transient detector errors can happen during warmup.
+          }
+        }, 350);
+      } catch {
+        setScanError("Unable to open camera. Please allow camera permission.");
+      }
+    };
+
+    start();
+    return () => {
+      cancelled = true;
+      stopScan();
+    };
+  }, [isLinkingFamily, nativeBridgeAvailable, step]);
+
+  useEffect(() => {
+    const onNativeQrResult = (event: Event) => {
+      const custom = event as CustomEvent<{ rawValue?: string }>;
+      const rawValue = custom.detail?.rawValue;
+      if (typeof rawValue === "string" && rawValue.length > 0) {
+          void handleDetectedQr(rawValue);
+      }
+    };
+    const onNativeQrError = (event: Event) => {
+      const custom = event as CustomEvent<{ error?: string }>;
+      if (custom.detail?.error) {
+        setScanError(custom.detail.error);
+      }
+    };
+    window.addEventListener("native-qr-result", onNativeQrResult as EventListener);
+    window.addEventListener("native-qr-error", onNativeQrError as EventListener);
+    return () => {
+      window.removeEventListener("native-qr-result", onNativeQrResult as EventListener);
+      window.removeEventListener("native-qr-error", onNativeQrError as EventListener);
+    };
+  }, []);
 
   // Success Screen
   if (step === "success") {
@@ -294,7 +458,7 @@ export function ScanPayScreen({ onBack }: ScanPayScreenProps) {
         <h1
           className={`font-extrabold tracking-tight text-foreground ${isElderlyMode ? "text-2xl" : "text-xl"}`}
         >
-          {t("scanPay")}
+          {scanMode === "family" ? "Family QR Scan" : t("scanPay")}
         </h1>
         <div className="w-12" />
       </motion.div>
@@ -304,6 +468,9 @@ export function ScanPayScreen({ onBack }: ScanPayScreenProps) {
           className={`relative mb-8 ${isElderlyMode ? "h-72 w-72" : "h-64 w-64"} animate-breathe overflow-hidden rounded-[1.75rem] shadow-glow ring-2 ring-white/50`}
           style={{ background: "linear-gradient(180deg, #0d1117 0%, #1a222e 100%)" }}
         >
+          {!nativeBridgeAvailable && (
+            <video ref={videoRef} className="absolute inset-0 h-full w-full object-cover" playsInline muted />
+          )}
           <div
             className="pointer-events-none absolute inset-2 rounded-[1.35rem] opacity-40"
             style={{
@@ -322,11 +489,24 @@ export function ScanPayScreen({ onBack }: ScanPayScreenProps) {
             animate={{ top: ["12%", "88%", "12%"] }}
             transition={{ duration: 2.2, repeat: Number.POSITIVE_INFINITY, ease: "easeInOut" }}
           />
+          {!cameraReady && !nativeBridgeAvailable && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/45 text-xs text-white/85">
+              Starting camera...
+            </div>
+          )}
+          {nativeBridgeAvailable && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/45 text-xs text-white/85">
+              Opening native scanner...
+            </div>
+          )}
         </div>
 
         <p className={`mb-8 text-center text-foreground/55 ${isElderlyMode ? "text-lg" : ""}`}>
           Position the QR code within the frame to scan
         </p>
+        {scanError && (
+          <p className="mb-4 text-center text-xs font-medium text-destructive">{scanError}</p>
+        )}
 
         <div className={`flex ${isElderlyMode ? "gap-12" : "gap-8"}`}>
           <motion.button
@@ -375,6 +555,30 @@ export function ScanPayScreen({ onBack }: ScanPayScreenProps) {
         >
           Simulate QR Scan
         </motion.button>
+        {scanMode === "family" && (
+          <div className="mt-3 w-full max-w-xs rounded-2xl border border-brand-purple/20 bg-white/85 p-3 shadow-soft">
+            <p className="mb-2 text-center text-xs font-semibold text-foreground/60">Have invite code?</p>
+            <div className="flex gap-2">
+              <input
+                value={inviteCodeInput}
+                onChange={(e) => {
+                  setScanTarget("family");
+                  setInviteCodeInput(e.target.value.toUpperCase());
+                }}
+                placeholder="Enter code"
+                className="w-full rounded-xl border border-brand-purple/25 px-3 py-2 text-center text-sm font-bold tracking-[0.08em] outline-none focus:border-brand-purple"
+              />
+              <button
+                type="button"
+                onClick={handleUseInviteCode}
+                className="rounded-xl bg-brand-purple px-3 py-2 text-xs font-semibold text-white disabled:opacity-60"
+                disabled={isLinkingFamily}
+              >
+                {isLinkingFamily ? "Linking..." : "Link"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

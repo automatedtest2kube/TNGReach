@@ -23,9 +23,10 @@ import {
   Mic,
   Users,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useAccessibility } from "@/context/accessibility-context";
+import { FALLBACK_USER_PROFILE, fetchUserProfile } from "@/lib/user-profile";
 
 interface HomeScreenProps {
   onNavigate: (screen: string) => void;
@@ -47,7 +48,30 @@ const homeItem = {
 
 export function HomeScreen({ onNavigate }: HomeScreenProps) {
   const [showBalance, setShowBalance] = useState(true);
+  const [profile, setProfile] = useState(FALLBACK_USER_PROFILE);
   const { isElderlyMode, t } = useAccessibility();
+
+  useEffect(() => {
+    let alive = true;
+    fetchUserProfile()
+      .then((data) => {
+        if (alive) setProfile(data);
+      })
+      .catch(() => {
+        // Keep fallback values when mock/API is unavailable.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const balanceText = useMemo(() => {
+    if (!showBalance) return "RM ••••••";
+    return `RM ${profile.walletBalance.toLocaleString("en-MY", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}`;
+  }, [profile.walletBalance, showBalance]);
 
   // =============================================================
   // ELDERLY MODE: completely simplified layout
@@ -113,7 +137,9 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
         {/* Greeting */}
         <div className="px-5 pt-5 pb-3">
           <p className="text-xl text-[#C9D1D9]">Hello,</p>
-          <h1 className="mt-1 text-4xl font-extrabold tracking-tight text-foreground">Sarah</h1>
+          <h1 className="mt-1 text-4xl font-extrabold tracking-tight text-foreground">
+            {profile.preferredName}
+          </h1>
         </div>
 
         {/* Big Balance Card */}
@@ -141,7 +167,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
               </button>
             </div>
             <p className="text-5xl font-bold text-white tracking-tight">
-              {showBalance ? "RM 2,458.50" : "RM ••••••"}
+              {balanceText}
             </p>
           </div>
         </div>
@@ -363,7 +389,9 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
           aria-hidden
         />
         <p className="relative text-base text-foreground/55">{t("welcome")},</p>
-        <h1 className="relative text-3xl font-extrabold tracking-tight text-foreground">Sarah</h1>
+        <h1 className="relative text-3xl font-extrabold tracking-tight text-foreground">
+          {profile.preferredName}
+        </h1>
       </motion.div>
 
       {/* Balance Card */}
@@ -380,7 +408,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
           </button>
         </div>
         <p className="relative z-10 text-4xl font-bold tracking-tight text-white drop-shadow-sm">
-          {showBalance ? "RM 2,458.50" : "RM ••••••"}
+          {balanceText}
         </p>
         <div className="relative z-10 mt-4 flex items-center gap-2 border-t border-white/25 pt-4">
           <div className="animate-bob rounded-full bg-white/25 p-1.5">

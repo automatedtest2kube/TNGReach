@@ -20,6 +20,7 @@ import { CrowdfundingHubScreen } from "@/components/screens/crowdfunding-hub-scr
 import { Bell, Settings } from "lucide-react";
 import { Mascot } from "@/components/Mascot";
 import { useAccessibility } from "@/context/accessibility-context";
+import { FALLBACK_USER_PROFILE, fetchUserProfile } from "@/lib/user-profile";
 
 type Phase = "splash" | "registration" | "main";
 
@@ -28,6 +29,7 @@ export function IntegratedWalletApp() {
   const [currentScreen, setCurrentScreen] = useState("home");
   const [isAIOpen, setIsAIOpen] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
+  const [profile, setProfile] = useState(FALLBACK_USER_PROFILE);
   const { isElderlyMode, chatBubbleEnabled } = useAccessibility();
 
   useEffect(() => {
@@ -46,6 +48,20 @@ export function IntegratedWalletApp() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, [phase, currentScreen]);
 
+  useEffect(() => {
+    let alive = true;
+    fetchUserProfile()
+      .then((data) => {
+        if (alive) setProfile(data);
+      })
+      .catch(() => {
+        // Keep fallback values when mock/API is unavailable.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   if (phase === "splash") return <SplashScreen />;
   if (phase === "registration") return <RegistrationFlow onComplete={() => setPhase("main")} />;
 
@@ -59,7 +75,7 @@ export function IntegratedWalletApp() {
   const showChatBubble = chatBubbleEnabled && !isAIOpen && (!showHeader || !headerVisible);
 
   return (
-    <div className="wallet-theme relative isolate mx-auto flex min-h-screen max-w-lg flex-col overflow-hidden bg-[linear-gradient(100deg,oklch(0.985_0.012_280)_0%,oklch(0.95_0.04_280)_50%,oklch(0.96_0.045_300)_100%)]">
+    <div className="wallet-theme relative isolate mx-auto flex min-h-screen max-w-lg flex-col overflow-hidden bg-[linear-gradient(100deg,oklch(0.985_0.012_280)_0%,oklch(0.95_0.04_280)_50%,oklch(0.96_0.045_300)_100%)] pt-[max(env(safe-area-inset-top),0.5rem)]">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 -z-10 overflow-hidden bg-[radial-gradient(at_20%_8%,oklch(0.92_0.08_265/0.5),transparent_55%),radial-gradient(at_88%_12%,oklch(0.9_0.1_60/0.35),transparent_50%),radial-gradient(at_50%_92%,oklch(0.88_0.1_300/0.4),transparent_55%)]"
@@ -85,6 +101,11 @@ export function IntegratedWalletApp() {
             SA
           </div>
           <div className="flex items-center gap-1 sm:gap-2">
+            {profile.accountMode === "simple" && (
+              <span className="mr-1 rounded-full border border-brand-orange/35 bg-brand-orange/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-brand-orange">
+                Simple Mode
+              </span>
+            )}
             <button
               type="button"
               onClick={() => setIsAIOpen(true)}
@@ -132,6 +153,9 @@ export function IntegratedWalletApp() {
       {currentScreen === "scan" && (
         <ScanPayScreen onBack={handleBack} onNavigate={handleNavigate} />
       )}
+      {currentScreen === "family-scan" && (
+        <ScanPayScreen onBack={() => handleNavigate("family")} onNavigate={handleNavigate} scanMode="family" />
+      )}
       {currentScreen === "bills" && <BillsScreen onBack={handleBack} />}
       {currentScreen === "history" && <HistoryScreen onBack={handleBack} />}
       {currentScreen === "profile" && (
@@ -149,7 +173,7 @@ export function IntegratedWalletApp() {
         <CrowdfundingHubScreen onBack={handleBack} />
       )}
       {currentScreen === "trust-score" && <TrustScoreScreen onBack={handleBack} />}
-      {currentScreen === "family" && <FamilyScreen onBack={handleBack} />}
+      {currentScreen === "family" && <FamilyScreen onBack={handleBack} onNavigate={handleNavigate} />}
       {showBottomNav && (
         <BottomNav
           activeScreen={currentScreen}
