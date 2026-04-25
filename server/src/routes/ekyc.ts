@@ -26,10 +26,9 @@ ekycRoutes.post("/ekyc/scan-ic", async (c) => {
   if (!extracted.icNumber) {
     throw new HttpError(422, "Could not detect an IC number in the image", "ic_number_not_found");
   }
-  if (!extracted.fullName) {
-    throw new HttpError(422, "Could not detect a full name in the image", "full_name_not_found");
-  }
 
+  // fullName or address missing — return the partial result with needsReview=true
+  // so the frontend can prompt the user to fill in the gaps manually
   return c.json({ extracted });
 });
 

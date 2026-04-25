@@ -47,6 +47,7 @@ export function RegistrationFlow({
   const [address, setAddress] = useState("");
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState<string | null>(null);
+  const [scanWarning, setScanWarning] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [processingMessage, setProcessingMessage] = useState<string | null>(null);
@@ -64,6 +65,7 @@ export function RegistrationFlow({
     setIcImage(dataUrl);
     setScanning(true);
     setScanError(null);
+    setScanWarning(null);
     setIcNo("");
     setFullName("");
     setAddress("");
@@ -82,6 +84,12 @@ export function RegistrationFlow({
       setIcNo(extracted?.icNumber ?? "");
       setFullName(extracted?.fullName ?? "");
       setAddress(extracted?.address ?? "");
+      if (extracted?.needsReview) {
+        const missing = [!extracted.fullName && "full name", !extracted.address && "address"]
+          .filter(Boolean)
+          .join(" and ");
+        setScanWarning(`Could not auto-detect ${missing}. Please fill in manually.`);
+      }
     } catch {
       setScanError("Could not reach the server. Check your connection.");
     } finally {
@@ -527,6 +535,7 @@ export function RegistrationFlow({
                   setFullName("");
                   setAddress("");
                   setScanError(null);
+                  setScanWarning(null);
                 }}
                 hint={`Place ${idType === "ic" ? "IC" : "passport"} inside the frame`}
                 allowUpload
@@ -571,6 +580,13 @@ export function RegistrationFlow({
                       </>
                     ) : scanError ? (
                       <div className="text-[12px] font-bold text-red-500">{scanError}</div>
+                    ) : scanWarning ? (
+                      <>
+                        <span className="text-amber-500">⚠️</span>
+                        <div className="text-[12px] font-semibold text-amber-600">
+                          {scanWarning}
+                        </div>
+                      </>
                     ) : (
                       <>
                         <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-brand-blue to-brand-purple text-[10px] text-white">
