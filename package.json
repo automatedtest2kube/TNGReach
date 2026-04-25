@@ -66,6 +66,7 @@
     "@tanstack/router-plugin": "^1.167.10",
     "@types/sharp": "^0.31.1",
     "ali-oss": "^6.23.0",
+    "azure-maps-control": "^3.7.4",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
