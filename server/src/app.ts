@@ -7,6 +7,7 @@ import { healthRoutes } from "./routes/health";
 import { integrationRoutes } from "./routes/integrations";
 import { jobsRoutes } from "./routes/jobs";
 import { storageRoutes } from "./routes/storage";
+import { usersRoutes } from "./routes/users";
 import type { HonoEnv } from "./types/hono-env";
 
 export function createApp() {
@@ -35,6 +36,7 @@ export function createApp() {
   app.route("/api/v1", integrationRoutes);
   app.route("/api/v1", jobsRoutes);
   app.route("/api/v1", storageRoutes);
+  app.route("/api/v1", usersRoutes);
 
   return app;
 }
