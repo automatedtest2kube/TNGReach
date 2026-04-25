@@ -23,36 +23,58 @@ interface CropRegion {
 }
 
 /**
- * Crop a base64 data-URL image to the given fractional region using sharp.
- * Returns a new base64 JPEG data-URL.
+ * MyKad region map — derived from the actual card layout:
+ *
+ *  ┌─────────────────────────────────────────────┐
+ *  │  KAD PENGENALAN MALAYSIA        [flag/logo]  │  0–18%
+ *  │  550106-12-5821                              │  18–30%
+ *  │  [chip]                  [photo]             │  30–55%
+ *  │  ROWAN SEBASTIAN ATKINSON        [photo]     │  55–70%
+ *  │  GDW KAMPUNG BAYANGAN            [photo]     │  70–78%
+ *  │  80000 KENINGAU                  WARGANEGARA │  78–86%
+ *  │  SABAH                           KHUNSA  H   │  86–95%
+ *  └─────────────────────────────────────────────┘
+ *
+ *  Left text column occupies x: 0–58% (photo is right 42%)
  */
-async function cropDataUrl(dataUrl: string, region: CropRegion): Promise<string> {
-  const b64 = dataUrl.split("base64,")[1];
-  if (!b64) throw new Error("Invalid data URL");
-  const inputBuf = Buffer.from(b64, "base64");
+const IC_REGIONS = {
+  // IC number sits just below the header band
+  icNumber: { x: 0.02, y: 0.18, width: 0.56, height: 0.14 },
+  // Name block: below the chip, left column only
+  fullName: { x: 0.02, y: 0.54, width: 0.56, height: 0.18 },
+  // Address block: three lines below the name
+  address: { x: 0.02, y: 0.68, width: 0.56, height: 0.28 },
+} as const;
 
+/**
+ * Crop + pre-process a region for Textract.
+ * Steps:
+ *   1. Extract the fractional region
+ *   2. Convert to greyscale (removes the light-blue tint that confuses OCR)
+ *   3. Normalise levels (auto-contrast)
+ *   4. Sharpen slightly
+ *   5. Scale up 2× so small text is easier to read
+ *   6. Output as high-quality PNG (lossless — avoids JPEG artefacts on text)
+ */
+async function cropAndEnhance(inputBuf: Buffer, region: CropRegion): Promise<Buffer> {
   const meta = await sharp(inputBuf).metadata();
   const iw = meta.width ?? 0;
   const ih = meta.height ?? 0;
 
-  const left = Math.round(region.x * iw);
-  const top = Math.round(region.y * ih);
-  const width = Math.round(region.width * iw);
-  const height = Math.round(region.height * ih);
+  const left = Math.max(0, Math.round(region.x * iw));
+  const top = Math.max(0, Math.round(region.y * ih));
+  const width = Math.min(iw - left, Math.round(region.width * iw));
+  const height = Math.min(ih - top, Math.round(region.height * ih));
 
-  const outBuf = await sharp(inputBuf)
+  return sharp(inputBuf)
     .extract({ left, top, width, height })
-    .jpeg({ quality: 92 })
+    .greyscale()
+    .normalise()
+    .sharpen({ sigma: 1.2 })
+    .resize(width * 2, height * 2, { kernel: "lanczos3" })
+    .png()
     .toBuffer();
-
-  return `data:image/jpeg;base64,${outBuf.toString("base64")}`;
 }
-
-// Recommended crop regions for Malaysian MyKad (as fractions of card dimensions)
-const IC_REGIONS = {
-  fullName: { x: 0.08, y: 0.4, width: 0.65, height: 0.18 },
-  address: { x: 0.08, y: 0.58, width: 0.65, height: 0.22 },
-} as const;
 
 async function imageBytesFromRef(inputRef: string): Promise<Uint8Array> {
   if (inputRef.startsWith("data:") && inputRef.includes("base64,")) {
@@ -76,13 +98,23 @@ async function imageBytesFromRef(inputRef: string): Promise<Uint8Array> {
   );
 }
 
-/** Raw lines extracted from the document */
-async function extractLines(imageRef: string): Promise<string[]> {
-  const bytes = await imageBytesFromRef(imageRef);
+/** Send raw bytes to Textract and return LINE-level text blocks sorted top-to-bottom */
+async function extractLinesFromBytes(bytes: Uint8Array): Promise<string[]> {
   const out = await getClient().send(new DetectDocumentTextCommand({ Document: { Bytes: bytes } }));
   return (out.Blocks ?? [])
     .filter((b: Block) => b.BlockType === "LINE" && b.Text)
+    .sort((a: Block, b: Block) => {
+      // Sort by vertical position so multi-line fields stay in order
+      const ay = a.Geometry?.BoundingBox?.Top ?? 0;
+      const by = b.Geometry?.BoundingBox?.Top ?? 0;
+      return ay - by;
+    })
     .map((b: Block) => b.Text as string);
+}
+
+async function extractLines(imageRef: string): Promise<string[]> {
+  const bytes = await imageBytesFromRef(imageRef);
+  return extractLinesFromBytes(bytes);
 }
 
 export interface IcExtractResult {
@@ -116,7 +148,6 @@ const IC_REGEX = /\b(\d{6}[-\s]?\d{2}[-\s]?\d{4})\b/;
  *   WARGANEGARA / KHUNSA / H …          ← noise
  */
 export function parseMyKadLines(lines: string[]): IcExtractResult {
-  // Strip noise lines
   const clean = lines.map((l) => l.trim()).filter((l) => l && !NOISE.test(l));
 
   // ── IC Number ──────────────────────────────────────────────────────────────
@@ -134,14 +165,12 @@ export function parseMyKadLines(lines: string[]): IcExtractResult {
   if (icIdx === -1) return { icNumber: null, fullName: null, address: null, rawLines: lines };
 
   // ── Full Name ──────────────────────────────────────────────────────────────
-  // Name lines come right after the IC number.
-  // A name line is all-caps letters/spaces/slashes, NOT a postcode, NOT noise.
   const nameLines: string[] = [];
   let cursor = icIdx + 1;
   while (cursor < clean.length) {
     const l = clean[cursor];
-    if (POSTCODE.test(l)) break; // hit address postcode
-    if (/\d/.test(l)) break; // contains digits → not a name
+    if (POSTCODE.test(l)) break;
+    if (/\d/.test(l)) break;
     if (NOISE.test(l)) break;
     if (/^[A-Z][A-Z\s'/.-]+$/.test(l) && l.length > 1) {
       nameLines.push(l);
@@ -153,8 +182,6 @@ export function parseMyKadLines(lines: string[]): IcExtractResult {
   const fullName = nameLines.length ? nameLines.join(" ") : null;
 
   // ── Address ────────────────────────────────────────────────────────────────
-  // Address lines come after the name, up to (and including) the state line,
-  // stopping before noise keywords.
   const addrLines: string[] = [];
   while (cursor < clean.length && addrLines.length < 5) {
     const l = clean[cursor];
@@ -167,46 +194,64 @@ export function parseMyKadLines(lines: string[]): IcExtractResult {
   return { icNumber, fullName, address, rawLines: lines };
 }
 
+/**
+ * Parse name lines from a cropped name-only region.
+ * The region contains no IC number, so we just collect all valid name lines.
+ */
+function parseCroppedName(lines: string[]): string | null {
+  const parts = lines
+    .map((l) => l.trim())
+    .filter((l) => l && !NOISE.test(l) && !/\d/.test(l) && /^[A-Z][A-Z\s'/.-]+$/.test(l));
+  return parts.length ? parts.join(" ") : null;
+}
+
+/**
+ * Parse address lines from a cropped address-only region.
+ * Collect all non-noise lines up to 5.
+ */
+function parseCroppedAddress(lines: string[]): string | null {
+  const parts = lines
+    .map((l) => l.trim())
+    .filter((l) => l && !NOISE.test(l))
+    .slice(0, 5);
+  return parts.length ? parts.join(", ") : null;
+}
+
 export async function extractIcFields(imageRef: string): Promise<IcExtractResult> {
-  // Full card scan — used for IC number detection
-  const lines = await extractLines(imageRef);
-  const base = parseMyKadLines(lines);
+  const isDataUrl = imageRef.startsWith("data:") && imageRef.includes("base64,");
 
-  // If the imageRef is a data URL we can crop sub-regions for better accuracy
-  if (imageRef.startsWith("data:") && imageRef.includes("base64,")) {
-    try {
-      const [nameDataUrl, addrDataUrl] = await Promise.all([
-        cropDataUrl(imageRef, IC_REGIONS.fullName),
-        cropDataUrl(imageRef, IC_REGIONS.address),
-      ]);
+  // Always do a full-card scan first — reliable for IC number
+  const fullLines = await extractLines(imageRef);
+  const base = parseMyKadLines(fullLines);
 
-      const [nameLines, addrLines] = await Promise.all([
-        extractLines(nameDataUrl),
-        extractLines(addrDataUrl),
-      ]);
+  if (!isDataUrl) return base;
 
-      // Use cropped results when they yield something useful
-      const croppedName =
-        nameLines
-          .filter((l) => l.trim())
-          .join(" ")
-          .trim() || null;
-      const croppedAddr =
-        addrLines
-          .filter((l) => l.trim())
-          .join(", ")
-          .trim() || null;
+  // For data URLs: crop each region, enhance, then run dedicated Textract calls
+  try {
+    const b64 = imageRef.split("base64,")[1]!;
+    const inputBuf = Buffer.from(b64, "base64");
 
-      return {
-        icNumber: base.icNumber,
-        fullName: croppedName ?? base.fullName,
-        address: croppedAddr ?? base.address,
-        rawLines: lines,
-      };
-    } catch {
-      // Crop failed — fall back to full-card parse
-    }
+    const [nameBuf, addrBuf] = await Promise.all([
+      cropAndEnhance(inputBuf, IC_REGIONS.fullName),
+      cropAndEnhance(inputBuf, IC_REGIONS.address),
+    ]);
+
+    const [nameLines, addrLines] = await Promise.all([
+      extractLinesFromBytes(nameBuf),
+      extractLinesFromBytes(addrBuf),
+    ]);
+
+    const croppedName = parseCroppedName(nameLines);
+    const croppedAddr = parseCroppedAddress(addrLines);
+
+    return {
+      icNumber: base.icNumber,
+      fullName: croppedName ?? base.fullName,
+      address: croppedAddr ?? base.address,
+      rawLines: fullLines,
+    };
+  } catch {
+    // Enhancement/crop failed — fall back to full-card parse
+    return base;
   }
-
-  return base;
 }
