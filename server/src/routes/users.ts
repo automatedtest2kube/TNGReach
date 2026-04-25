@@ -434,6 +434,7 @@ usersRoutes.post("/wallet/topup", async (c) => {
     amount: body.amount.toFixed(2),
     transactionType: "RECEIVE",
     transactionStatus: "COMPLETED",
+    timestampMs: Date.now(),
     description: body.description ?? "Top up",
   });
   return c.json({ userId: body.userId, balance: next });
@@ -482,6 +483,7 @@ usersRoutes.post("/wallet/transfer", async (c) => {
     amount: body.amount.toFixed(2),
     transactionType: "SEND",
     transactionStatus: "COMPLETED",
+    timestampMs: Date.now(),
     description: body.description ?? "Wallet transfer",
   });
   return c.json({
@@ -522,6 +524,7 @@ usersRoutes.post("/wallet/bill-payment", async (c) => {
     amount: body.amount.toFixed(2),
     transactionType: "BILL_PAYMENT",
     transactionStatus: "COMPLETED",
+    timestampMs: Date.now(),
     description: body.description ?? `Bill payment: ${body.billerName}`,
   });
   return c.json({ userId: body.userId, balance: next });

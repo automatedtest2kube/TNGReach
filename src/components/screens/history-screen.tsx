@@ -153,7 +153,7 @@ export function HistoryScreen({ onBack, activeUserId, walletRefreshKey }: Histor
       const icon = kind === "RECEIVE" ? Plus : kind === "BILL_PAYMENT" ? Zap : Send;
       const category =
         kind === "RECEIVE" ? "Top Up" : kind === "BILL_PAYMENT" ? "Bills" : "Transfer";
-      const dateObj = new Date(tx.transactionDate);
+      const dateObj = tx.timestampMs ? new Date(tx.timestampMs) : new Date(tx.transactionDate);
       const isIncoming = tx.receiverId === activeUserId && tx.senderId !== activeUserId;
       const isOutgoing = tx.senderId === activeUserId && tx.receiverId !== activeUserId;
       const signedAmount = isIncoming ? Math.abs(amount) : isOutgoing ? -Math.abs(amount) : amount;

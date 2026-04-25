@@ -65,10 +65,11 @@ export function HomeScreen({ onNavigate, activeUserId, walletRefreshKey }: HomeS
     const isIncoming = tx.receiverId === activeUserId && tx.senderId !== activeUserId;
     const isOutgoing = tx.senderId === activeUserId && tx.receiverId !== activeUserId;
     const signedAmount = isIncoming ? Math.abs(rawAmount) : isOutgoing ? -Math.abs(rawAmount) : rawAmount;
+    const txDate = tx.timestampMs ? new Date(tx.timestampMs) : new Date(tx.transactionDate);
     return {
       id: tx.transactionId ?? idx + 1,
       name: tx.description || tx.transactionType,
-      time: new Date(tx.transactionDate).toLocaleDateString(),
+      time: txDate.toLocaleString([], { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }),
       amount: signedAmount,
     };
   });

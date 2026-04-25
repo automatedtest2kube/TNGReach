@@ -275,6 +275,7 @@ export function IntegratedWalletApp() {
         currentScreen={!isElderlyMode ? currentScreen : undefined}
         activeUserId={activeUserId}
         userDisplayName={profile.fullName}
+        onWalletChanged={() => setWalletRefreshKey((v) => v + 1)}
         onNavigate={(screen) => {
           setIsAIOpen(false);
           handleNavigate(screen);
