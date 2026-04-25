@@ -30,6 +30,7 @@ import { useWalletData } from "@/hooks/use-wallet-data";
 
 interface HomeScreenProps {
   onNavigate: (screen: string) => void;
+  activeUserId?: number;
 }
 
 const homeStagger = {
@@ -46,10 +47,10 @@ const homeItem = {
   },
 };
 
-export function HomeScreen({ onNavigate }: HomeScreenProps) {
+export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
   const [showBalance, setShowBalance] = useState(true);
   const { isElderlyMode, t } = useAccessibility();
-  const { summary } = useWalletData();
+  const { summary } = useWalletData(activeUserId);
   const userName = summary?.user.fullName?.split(" ")[0] || "Sarah";
   const walletCurrency = summary?.wallet?.currency || "MYR";
   const walletBalance = Number(summary?.wallet?.balance ?? 2458.5);

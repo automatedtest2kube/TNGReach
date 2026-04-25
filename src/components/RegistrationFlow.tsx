@@ -6,10 +6,15 @@ import { SpeechBubble } from "./SpeechBubble";
 import { ProgressDots } from "./ProgressDots";
 import { CameraCapture } from "./CameraCapture";
 import logo from "@/assets/tng-reach-logo.png";
+import { signIn, signUp } from "@/lib/api/auth";
 
 type Lang = "en" | "bm" | "zh";
 type AccountType = "normal" | "simple";
 type IdType = "ic" | "passport";
+export type RegistrationCompletePayload = {
+  skipped: boolean;
+  userId?: number;
+};
 
 const LANGS: { id: Lang; label: string; native: string; flag: string }[] = [
   { id: "en", label: "English", native: "English", flag: "🇬🇧" },
@@ -25,7 +30,11 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function RegistrationFlow({ onComplete }: { onComplete?: () => void }) {
+export function RegistrationFlow({
+  onComplete,
+}: {
+  onComplete?: (payload: RegistrationCompletePayload) => void;
+}) {
   const [step, setStep] = useState(0);
   const [lang, setLang] = useState<Lang | null>(null);
   const [accountType, setAccountType] = useState<AccountType | null>(null);
@@ -37,16 +46,56 @@ export function RegistrationFlow({ onComplete }: { onComplete?: () => void }) {
   const [address, setAddress] = useState(
     "12, Jalan Bunga Raya, Taman Melati,\n53100 Kuala Lumpur, Malaysia",
   );
+  const [authMode, setAuthMode] = useState<"none" | "signin" | "signup">("none");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authConfirmPassword, setAuthConfirmPassword] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const TOTAL = 6;
-  const next = () => {
+  const next = async () => {
+    if (step === 0 && authMode !== "none") {
+      setAuthError(null);
+      if (!authEmail.trim() || !authPassword.trim()) {
+        setAuthError("Email and password are required.");
+        return;
+      }
+      if (authMode === "signup") {
+        if (!fullName.trim()) {
+          setAuthError("Full name is required.");
+          return;
+        }
+        if (authPassword !== authConfirmPassword) {
+          setAuthError("Passwords do not match.");
+          return;
+        }
+      }
+      try {
+        setAuthLoading(true);
+        const result =
+          authMode === "signin"
+            ? await signIn({ email: authEmail.trim(), password: authPassword })
+            : await signUp({
+                fullName: fullName.trim(),
+                email: authEmail.trim(),
+                password: authPassword,
+              });
+        onComplete?.({ skipped: false, userId: result.userId });
+      } catch (err) {
+        setAuthError(err instanceof Error ? err.message : "Authentication failed.");
+      } finally {
+        setAuthLoading(false);
+      }
+      return;
+    }
     if (step === TOTAL - 1) {
-      onComplete?.();
+      onComplete?.({ skipped: false });
       return;
     }
     setStep((s) => Math.min(s + 1, TOTAL - 1));
   };
-  const skip = () => onComplete?.();
+  const skip = () => onComplete?.({ skipped: true, userId: 1 });
   const back = () => setStep((s) => Math.max(s - 1, 0));
 
   const stepConfig: {
@@ -73,6 +122,15 @@ export function RegistrationFlow({ onComplete }: { onComplete?: () => void }) {
   const cfg = stepConfig[step];
 
   const ctaDisabled =
+    authLoading ||
+    (step === 0 && authMode === "signin" && (!authEmail.trim() || !authPassword.trim())) ||
+    (step === 0 &&
+      authMode === "signup" &&
+      (!fullName.trim() ||
+        !authEmail.trim() ||
+        !authPassword.trim() ||
+        !authConfirmPassword.trim() ||
+        authPassword !== authConfirmPassword)) ||
     (step === 1 && !lang) ||
     (step === 2 && !accountType) ||
     (step === 3 && !icImage) ||
@@ -80,7 +138,7 @@ export function RegistrationFlow({ onComplete }: { onComplete?: () => void }) {
     (step === 5 && !selfieImage);
 
   const ctaLabel = [
-    "Let's go",
+    authMode === "signin" ? "Sign in" : authMode === "signup" ? "Create account" : "Let's go",
     "Continue",
     "Continue",
     icImage ? "Looks good" : "Capture ID first",
@@ -161,7 +219,11 @@ export function RegistrationFlow({ onComplete }: { onComplete?: () => void }) {
           {step === 0 && (
             <div className="flex flex-col items-center gap-3 py-2 text-center">
               <span className="badge-welcome max-w-full">
-                <Sparkles className="h-3.5 w-3.5 shrink-0 text-brand-orange" strokeWidth={2.5} aria-hidden />
+                <Sparkles
+                  className="h-3.5 w-3.5 shrink-0 text-brand-orange"
+                  strokeWidth={2.5}
+                  aria-hidden
+                />
                 Welcome aboard
               </span>
               <motion.div
@@ -186,6 +248,72 @@ export function RegistrationFlow({ onComplete }: { onComplete?: () => void }) {
                 <span className="h-1 w-1 rounded-full bg-foreground/30" />
                 <span className="flex items-center gap-1">🎁 Rewards</span>
               </div>
+              {authMode !== "none" && (
+                <div className="mt-3 w-full rounded-2xl border border-brand-purple/20 bg-white/70 p-3 text-left">
+                  <div className="mb-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setAuthMode("signin")}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${authMode === "signin" ? "bg-brand-purple text-white" : "bg-white text-brand-purple"}`}
+                    >
+                      Sign in
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAuthMode("signup")}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${authMode === "signup" ? "bg-brand-purple text-white" : "bg-white text-brand-purple"}`}
+                    >
+                      Sign up
+                    </button>
+                  </div>
+                  {authMode === "signup" && (
+                    <div className="mb-2">
+                      <FieldLabel>Full name</FieldLabel>
+                      <input
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm"
+                        placeholder="Full name"
+                      />
+                    </div>
+                  )}
+                  <div className="mb-2">
+                    <FieldLabel>Email</FieldLabel>
+                    <input
+                      value={authEmail}
+                      onChange={(e) => setAuthEmail(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm"
+                      placeholder="you@email.com"
+                      type="email"
+                    />
+                  </div>
+                  <div className="mb-2">
+                    <FieldLabel>Password</FieldLabel>
+                    <input
+                      value={authPassword}
+                      onChange={(e) => setAuthPassword(e.target.value)}
+                      className="mt-1 w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm"
+                      placeholder="At least 8 characters"
+                      type="password"
+                    />
+                  </div>
+                  {authMode === "signup" && (
+                    <div className="mb-2">
+                      <FieldLabel>Confirm password</FieldLabel>
+                      <input
+                        value={authConfirmPassword}
+                        onChange={(e) => setAuthConfirmPassword(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-white/70 bg-white/90 px-3 py-2 text-sm"
+                        placeholder="Re-enter password"
+                        type="password"
+                      />
+                    </div>
+                  )}
+                  {authError && (
+                    <p className="mt-1 text-xs font-medium text-red-600">{authError}</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -435,9 +563,21 @@ export function RegistrationFlow({ onComplete }: { onComplete?: () => void }) {
           <div className="mt-3 flex items-center justify-between gap-3 text-[12px] text-foreground/55">
             <p>
               Already have an account?{" "}
-              <span className="font-bold text-brand-purple underline-offset-2 hover:underline">
+              <button
+                type="button"
+                onClick={() => setAuthMode("signin")}
+                className="font-bold text-brand-purple underline-offset-2 hover:underline"
+              >
                 Sign in
-              </span>
+              </button>
+              {" · "}
+              <button
+                type="button"
+                onClick={() => setAuthMode("signup")}
+                className="font-bold text-brand-purple underline-offset-2 hover:underline"
+              >
+                Sign up
+              </button>
             </p>
             <button
               type="button"

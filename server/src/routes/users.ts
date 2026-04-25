@@ -1,4 +1,5 @@
-import { and, desc, eq, or } from "drizzle-orm";
+import { desc, eq, or } from "drizzle-orm";
+import { compare, hash } from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireDb } from "../db";
@@ -45,6 +46,18 @@ const billBody = z.object({
   description: z.string().optional(),
 });
 
+const signUpBody = z.object({
+  fullName: z.string().min(2).max(255),
+  email: z.string().email(),
+  password: z.string().min(8).max(128),
+  phoneNumber: z.string().max(20).optional(),
+});
+
+const signInBody = z.object({
+  email: z.string().email(),
+  password: z.string().min(8).max(128),
+});
+
 function decimalToNumber(v: string | number | null | undefined): number {
   if (v === null || v === undefined) {
     return 0;
@@ -55,7 +68,80 @@ function decimalToNumber(v: string | number | null | undefined): number {
   return Number.parseFloat(v);
 }
 
+function toPublicUser(user: typeof userProfile.$inferSelect) {
+  const { passwordHash, ...rest } = user;
+  return rest;
+}
+
 export const usersRoutes = new Hono<HonoEnv>();
+
+usersRoutes.post("/auth/signup", async (c) => {
+  const parsed = signUpBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return c.json({ error: "validation", details: parsed.error.flatten() }, 400);
+  }
+  const body = parsed.data;
+  const db = requireDb();
+  const [existing] = await db
+    .select()
+    .from(userProfile)
+    .where(eq(userProfile.email, body.email))
+    .limit(1);
+  if (existing) {
+    throw new HttpError(409, "Email already exists", "email_exists");
+  }
+
+  const passwordHash = await hash(body.password, 12);
+  const [created] = await db
+    .insert(userProfile)
+    .values({
+      fullName: body.fullName,
+      email: body.email,
+      passwordHash,
+      phoneNumber: body.phoneNumber ?? null,
+    })
+    .$returningId();
+
+  if (!created?.userId) {
+    throw new HttpError(500, "Unable to create account", "signup_failed");
+  }
+
+  await db.insert(walletBalance).values({
+    userId: created.userId,
+    currency: "MYR",
+    balance: "0.00",
+  });
+
+  return c.json({ userId: created.userId, email: body.email, fullName: body.fullName }, 201);
+});
+
+usersRoutes.post("/auth/signin", async (c) => {
+  const parsed = signInBody.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) {
+    return c.json({ error: "validation", details: parsed.error.flatten() }, 400);
+  }
+  const body = parsed.data;
+  const db = requireDb();
+  const [user] = await db
+    .select()
+    .from(userProfile)
+    .where(eq(userProfile.email, body.email))
+    .limit(1);
+  if (!user?.passwordHash) {
+    throw new HttpError(401, "Invalid credentials", "invalid_credentials");
+  }
+
+  const ok = await compare(body.password, user.passwordHash);
+  if (!ok) {
+    throw new HttpError(401, "Invalid credentials", "invalid_credentials");
+  }
+
+  return c.json({
+    userId: user.userId,
+    email: user.email,
+    fullName: user.fullName,
+  });
+});
 
 usersRoutes.post("/users", async (c) => {
   const parsed = createUserBody.safeParse(await c.req.json().catch(() => null));
@@ -119,7 +205,7 @@ usersRoutes.post("/users", async (c) => {
     .from(userProfile)
     .where(eq(userProfile.userId, created.userId))
     .limit(1);
-  return c.json({ user: row }, 201);
+  return c.json({ user: row ? toPublicUser(row) : null }, 201);
 });
 
 usersRoutes.get("/users/:id", async (c) => {
@@ -152,7 +238,7 @@ usersRoutes.get("/users/:id", async (c) => {
     .limit(20);
 
   return c.json({
-    user,
+    user: toPublicUser(user),
     wallet: wallet ?? null,
     transactions: tx,
     faces,
