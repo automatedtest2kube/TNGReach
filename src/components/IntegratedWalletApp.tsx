@@ -243,6 +243,7 @@ export function IntegratedWalletApp() {
       <AICommandCenter
         isOpen={isAIOpen}
         onClose={() => setIsAIOpen(false)}
+        activeUserId={activeUserId}
         onNavigate={(screen) => {
           setIsAIOpen(false);
           handleNavigate(screen);

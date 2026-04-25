@@ -22,6 +22,9 @@ const envSchema = z.object({
   AWS_REGION: z.string().optional().default("ap-southeast-1"),
   AWS_DYNAMODB_LOGS_TABLE: z.string().optional(),
   AWS_LAMBDA_NAME: z.string().optional(),
+  AWS_BEDROCK_MODEL_ID: z.string().optional(),
+  AWS_BEDROCK_MAX_TOKENS: z.coerce.number().int().min(1).max(8192).optional().default(512),
+  AWS_BEDROCK_TEMPERATURE: z.coerce.number().min(0).max(1).optional().default(0.4),
 
   /** Optional override for S3/Transcribe – media must live in S3 for batch jobs */
   AWS_S3_MEDIA_BUCKET: z.string().optional(),

@@ -1,14 +1,16 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { X, Mic, Send, MicOff } from "lucide-react";
+import { X, Mic, Send, MicOff, Volume2 } from "lucide-react";
 import { Mascot } from "@/components/Mascot";
 import { useAccessibility } from "@/context/accessibility-context";
+import { fetchPollyAudio, sendChatMessage, transcribeAudio } from "@/lib/api/chat";
 
 interface AICommandCenterProps {
   isOpen: boolean;
   onClose: () => void;
   onNavigate?: (screen: string) => void;
+  activeUserId?: number;
 }
 
 interface Message {
@@ -18,11 +20,13 @@ interface Message {
   timestamp: Date;
 }
 
-export function AICommandCenter({ isOpen, onClose, onNavigate }: AICommandCenterProps) {
+export function AICommandCenter({ isOpen, onClose, onNavigate, activeUserId }: AICommandCenterProps) {
   const [input, setInput] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [panelHeight, setPanelHeight] = useState(70);
   const [isDragging, setIsDragging] = useState(false);
+  const [isSending, setIsSending] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "welcome",
@@ -31,8 +35,12 @@ export function AICommandCenter({ isOpen, onClose, onNavigate }: AICommandCenter
       timestamp: new Date(),
     },
   ]);
-  const { isElderlyMode } = useAccessibility();
+  const { isElderlyMode, voiceEnabled, language } = useAccessibility();
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const recordedChunksRef = useRef<BlobPart[]>([]);
   const dragStartY = useRef(0);
   const startHeight = useRef(70);
   /** Ignore backdrop / close for a few ms so the post-touch synthetic click cannot reopen-close the sheet. */
@@ -53,6 +61,8 @@ export function AICommandCenter({ isOpen, onClose, onNavigate }: AICommandCenter
     }
   }, [messages]);
 
+  const voiceLang = language === "bm" ? "ms-MY" : language === "zh" ? "zh-CN" : "en-US";
+
   useEffect(() => {
     if (isOpen) {
       setPanelHeight(70);
@@ -65,45 +75,65 @@ export function AICommandCenter({ isOpen, onClose, onNavigate }: AICommandCenter
     onClose();
   }, [onClose]);
 
-  const handleSend = () => {
-    if (!input.trim()) return;
+  const playPolly = useCallback(async (text: string) => {
+    try {
+      const out = await fetchPollyAudio(text);
+      const mime = out.contentType || "audio/mpeg";
+      const audio = new Audio(`data:${mime};base64,${out.audioBase64}`);
+      currentAudioRef.current?.pause();
+      currentAudioRef.current = audio;
+      await audio.play();
+    } catch {
+      // Keep chat flow resilient if Polly is not configured.
+    }
+  }, []);
+
+  const handleSend = async () => {
+    if (!input.trim() || isSending) return;
+    const userText = input.trim();
 
     const userMessage: Message = {
       id: Date.now().toString(),
       type: "user",
-      text: input,
+      text: userText,
       timestamp: new Date(),
     };
 
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
-
-    setTimeout(() => {
+    setIsSending(true);
+    try {
+      const conversation = [...messages, userMessage].map((m) => ({
+        role: m.type === "user" ? "user" : "assistant",
+        content: m.text,
+      })) as Array<{ role: "user" | "assistant"; content: string }>;
+      const result = await sendChatMessage(conversation, activeUserId);
       const aiResponse: Message = {
         id: (Date.now() + 1).toString(),
         type: "ai",
-        text: getAIResponse(input),
+        text: result.reply,
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, aiResponse]);
-    }, 800);
-  };
-
-  const getAIResponse = (query: string): string => {
-    const lowerQuery = query.toLowerCase();
-    if (lowerQuery.includes("send") || lowerQuery.includes("transfer")) {
-      return "I can help you send money. Who would you like to send to and how much?";
+      if (voiceEnabled) {
+        void playPolly(result.reply);
+      }
+      if (result.action === "pay_parking") {
+        onNavigate?.("parking");
+      } else if (result.action === "send_money") {
+        onNavigate?.("send");
+      }
+    } catch {
+      const fallback: Message = {
+        id: (Date.now() + 1).toString(),
+        type: "ai",
+        text: "I cannot reach the AI service right now. Please try again in a moment.",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, fallback]);
+    } finally {
+      setIsSending(false);
     }
-    if (lowerQuery.includes("balance")) {
-      return "Your current balance is RM 2,458.50. Would you like to top up?";
-    }
-    if (lowerQuery.includes("bill") || lowerQuery.includes("pay")) {
-      return "I can help you pay bills. You have 2 pending bills: Electric (RM 85.20) and Internet (RM 129.00).";
-    }
-    if (lowerQuery.includes("spend") || lowerQuery.includes("insight")) {
-      return "This month you've spent RM 1,250.50, up 14.8% from last month. Food & Dining is your highest category at 34%.";
-    }
-    return "I understand. Let me help you with that. What would you like to do?";
   };
 
   const handleQuickAction = (action: string) => {
@@ -114,14 +144,69 @@ export function AICommandCenter({ isOpen, onClose, onNavigate }: AICommandCenter
   };
 
   const toggleListening = () => {
-    setIsListening(!isListening);
-    if (!isListening) {
-      setTimeout(() => {
-        setInput("Check my spending this month");
-        setIsListening(false);
-      }, 2000);
+    if (typeof window === "undefined" || !window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) {
+      return;
     }
+    if (mediaRecorderRef.current && isListening) {
+      mediaRecorderRef.current.stop();
+      setIsListening(false);
+      return;
+    }
+    void (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaStreamRef.current = stream;
+        recordedChunksRef.current = [];
+        const recorder = new MediaRecorder(stream);
+        mediaRecorderRef.current = recorder;
+        recorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            recordedChunksRef.current.push(event.data);
+          }
+        };
+        recorder.onstop = () => {
+          const blob = new Blob(recordedChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+          stream.getTracks().forEach((t) => t.stop());
+          mediaStreamRef.current = null;
+          mediaRecorderRef.current = null;
+          setIsListening(false);
+          if (blob.size > 0) {
+            void (async () => {
+              try {
+                setIsTranscribing(true);
+                const buffer = await blob.arrayBuffer();
+                let binary = "";
+                const bytes = new Uint8Array(buffer);
+                for (let i = 0; i < bytes.length; i++) {
+                  binary += String.fromCharCode(bytes[i] ?? 0);
+                }
+                const base64 = btoa(binary);
+                const transcript = await transcribeAudio(base64, blob.type || "audio/webm", voiceLang);
+                setInput(transcript);
+              } catch {
+                setInput("");
+              } finally {
+                setIsTranscribing(false);
+              }
+            })();
+          }
+        };
+        recorder.start();
+        setIsListening(true);
+      } catch {
+        setIsListening(false);
+      }
+    })();
   };
+  useEffect(
+    () => () => {
+      currentAudioRef.current?.pause();
+      mediaRecorderRef.current?.stop();
+      mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    },
+    [],
+  );
+
 
   const handleDragStart = useCallback(
     (e: React.TouchEvent | React.MouseEvent) => {
@@ -267,11 +352,13 @@ export function AICommandCenter({ isOpen, onClose, onNavigate }: AICommandCenter
 
               <button
                 onClick={toggleListening}
+                disabled={isTranscribing}
                 className={`${isElderlyMode ? "w-11 h-11" : "w-10 h-10"} rounded-full flex items-center justify-center transition-all ${
                   isListening
                     ? "bg-[#F85149] animate-pulse"
                     : "bg-brand-purple/15 hover:bg-brand-purple/25"
-                }`}
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                title="Tap to record voice"
               >
                 {isListening ? (
                   <MicOff className={`${isElderlyMode ? "w-5 h-5" : "w-4 h-4"} text-white`} />
@@ -282,7 +369,7 @@ export function AICommandCenter({ isOpen, onClose, onNavigate }: AICommandCenter
 
               <button
                 onClick={handleSend}
-                disabled={!input.trim()}
+                disabled={!input.trim() || isSending}
                 className={`${isElderlyMode ? "w-11 h-11" : "w-10 h-10"} rounded-full flex items-center justify-center transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
                 style={{
                   background: input.trim()
@@ -291,7 +378,11 @@ export function AICommandCenter({ isOpen, onClose, onNavigate }: AICommandCenter
                   boxShadow: input.trim() ? "0 4px 15px rgba(88, 150, 253, 0.4)" : "none",
                 }}
               >
-                <Send className={`${isElderlyMode ? "w-5 h-5" : "w-4 h-4"} text-white`} />
+                {isSending ? (
+                  <span className="text-xs font-semibold text-white">...</span>
+                ) : (
+                  <Send className={`${isElderlyMode ? "w-5 h-5" : "w-4 h-4"} text-white`} />
+                )}
               </button>
             </div>
           </div>
@@ -348,7 +439,17 @@ export function AICommandCenter({ isOpen, onClose, onNavigate }: AICommandCenter
                         : undefined
                     }
                   >
-                    {msg.text}
+                    <div>{msg.text}</div>
+                    {msg.type === "ai" && (
+                      <button
+                        type="button"
+                        className="mt-2 inline-flex items-center gap-1 rounded-full border border-brand-purple/25 px-2 py-1 text-xs text-brand-purple hover:bg-brand-purple/10"
+                        onClick={() => void playPolly(msg.text)}
+                      >
+                        <Volume2 className="h-3.5 w-3.5" />
+                        Read aloud
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
