@@ -14,7 +14,8 @@
     "server:build": "esbuild server/src/index.ts --bundle --platform=node --target=node20 --format=esm --outfile=server/dist/index.mjs --packages=external",
     "server:start": "node server/dist/index.mjs",
     "db:generate": "drizzle-kit generate --config server/drizzle.config.ts",
-    "db:migrate": "drizzle-kit migrate --config server/drizzle.config.ts"
+    "db:migrate": "drizzle-kit migrate --config server/drizzle.config.ts",
+    "db:seed": "tsx server/src/scripts/seed.ts"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.1037.0",
