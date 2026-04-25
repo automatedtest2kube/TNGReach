@@ -42,9 +42,10 @@ const pageItem = {
 interface ProfileScreenProps {
   onBack: () => void;
   onNavigate?: (screen: string) => void;
+  activeUserId: number;
 }
 
-export function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps) {
+export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScreenProps) {
   const {
     elderlyMode,
     setElderlyMode,
@@ -62,7 +63,7 @@ export function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps) {
 
   useEffect(() => {
     let alive = true;
-    fetchUserProfile()
+    fetchUserProfile(activeUserId)
       .then((data) => {
         if (alive) setProfile(data);
       })
@@ -72,7 +73,7 @@ export function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps) {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [activeUserId]);
 
   const languages = [
     { code: "en" as const, name: "English" },

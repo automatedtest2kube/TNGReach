@@ -21,7 +21,7 @@ import { CrowdfundingHubScreen } from "@/components/screens/crowdfunding-hub-scr
 import { Bell, Settings } from "lucide-react";
 import { Mascot } from "@/components/Mascot";
 import { useAccessibility } from "@/context/accessibility-context";
-import { FALLBACK_USER_PROFILE, fetchUserProfile } from "@/lib/user-profile";
+import { FALLBACK_USER_PROFILE, fetchUserProfile, getInitials } from "@/lib/user-profile";
 import { useBackendHealth } from "@/hooks/use-backend-health";
 import { DEMO_USER_ID } from "@/lib/api/wallet";
 
@@ -70,7 +70,7 @@ export function IntegratedWalletApp() {
 
   useEffect(() => {
     let alive = true;
-    fetchUserProfile()
+    fetchUserProfile(activeUserId)
       .then((data) => {
         if (alive) setProfile(data);
       })
@@ -80,7 +80,7 @@ export function IntegratedWalletApp() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [activeUserId]);
 
   const handleRegistrationComplete = (payload: RegistrationCompletePayload) => {
     if (payload.userId) {
@@ -134,8 +134,9 @@ export function IntegratedWalletApp() {
           <div
             className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-base font-bold text-white"
             style={{ background: "linear-gradient(135deg, #5896FD 0%, #806EF8 100%)" }}
+            aria-hidden
           >
-            SA
+            {getInitials(profile.fullName)}
           </div>
           <div className="flex items-center gap-1 sm:gap-2">
             {profile.accountMode === "simple" && (
@@ -219,7 +220,7 @@ export function IntegratedWalletApp() {
         <HistoryScreen onBack={handleBack} activeUserId={activeUserId} />
       )}
       {currentScreen === "profile" && (
-        <ProfileScreen onBack={handleBack} onNavigate={handleNavigate} />
+        <ProfileScreen onBack={handleBack} onNavigate={handleNavigate} activeUserId={activeUserId} />
       )}
       {currentScreen === "parking" && <ParkingScreen onBack={handleBack} />}
       {currentScreen === "ai-insights" && (
@@ -231,7 +232,9 @@ export function IntegratedWalletApp() {
       {currentScreen === "reminders" && <RemindersScreen onBack={handleBack} />}
       {currentScreen === "community-support" && <CrowdfundingHubScreen onBack={handleBack} />}
       {currentScreen === "trust-score" && <TrustScoreScreen onBack={handleBack} />}
-      {currentScreen === "family" && <FamilyScreen onBack={handleBack} onNavigate={handleNavigate} />}
+      {currentScreen === "family" && (
+        <FamilyScreen onBack={handleBack} onNavigate={handleNavigate} activeUserId={activeUserId} />
+      )}
       {showBottomNav && (
         <BottomNav
           activeScreen={currentScreen}
@@ -244,6 +247,7 @@ export function IntegratedWalletApp() {
         isOpen={isAIOpen}
         onClose={() => setIsAIOpen(false)}
         activeUserId={activeUserId}
+        userDisplayName={profile.fullName}
         onNavigate={(screen) => {
           setIsAIOpen(false);
           handleNavigate(screen);

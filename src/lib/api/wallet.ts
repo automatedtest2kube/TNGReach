@@ -39,8 +39,8 @@ export async function ensureDemoUser(): Promise<void> {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      fullName: "Sarah Abdullah",
-      email: "sarah.demo@tngreach.local",
+      fullName: "Demo User",
+      email: "demo.user@tngreach.local",
       phoneNumber: "0123456789",
       currency: "MYR",
     }),
