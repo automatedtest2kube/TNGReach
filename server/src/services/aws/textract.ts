@@ -1,4 +1,5 @@
 import { DetectDocumentTextCommand, TextractClient, type Block } from "@aws-sdk/client-textract";
+import sharp from "sharp";
 import { HttpError } from "../../lib/http-error";
 import { getAwsClientConfig } from "./region";
 
@@ -11,6 +12,47 @@ function getClient() {
 }
 
 const MAX_BYTES = 10 * 1024 * 1024; // Textract 10 MB limit for inline bytes
+
+// ── Region crop helpers ────────────────────────────────────────────────────
+
+interface CropRegion {
+  x: number; // fraction of image width  (0–1)
+  y: number; // fraction of image height (0–1)
+  width: number; // fraction of image width
+  height: number; // fraction of image height
+}
+
+/**
+ * Crop a base64 data-URL image to the given fractional region using sharp.
+ * Returns a new base64 JPEG data-URL.
+ */
+async function cropDataUrl(dataUrl: string, region: CropRegion): Promise<string> {
+  const b64 = dataUrl.split("base64,")[1];
+  if (!b64) throw new Error("Invalid data URL");
+  const inputBuf = Buffer.from(b64, "base64");
+
+  const meta = await sharp(inputBuf).metadata();
+  const iw = meta.width ?? 0;
+  const ih = meta.height ?? 0;
+
+  const left = Math.round(region.x * iw);
+  const top = Math.round(region.y * ih);
+  const width = Math.round(region.width * iw);
+  const height = Math.round(region.height * ih);
+
+  const outBuf = await sharp(inputBuf)
+    .extract({ left, top, width, height })
+    .jpeg({ quality: 92 })
+    .toBuffer();
+
+  return `data:image/jpeg;base64,${outBuf.toString("base64")}`;
+}
+
+// Recommended crop regions for Malaysian MyKad (as fractions of card dimensions)
+const IC_REGIONS = {
+  fullName: { x: 0.08, y: 0.4, width: 0.65, height: 0.18 },
+  address: { x: 0.08, y: 0.58, width: 0.65, height: 0.22 },
+} as const;
 
 async function imageBytesFromRef(inputRef: string): Promise<Uint8Array> {
   if (inputRef.startsWith("data:") && inputRef.includes("base64,")) {
@@ -126,6 +168,45 @@ export function parseMyKadLines(lines: string[]): IcExtractResult {
 }
 
 export async function extractIcFields(imageRef: string): Promise<IcExtractResult> {
+  // Full card scan — used for IC number detection
   const lines = await extractLines(imageRef);
-  return parseMyKadLines(lines);
+  const base = parseMyKadLines(lines);
+
+  // If the imageRef is a data URL we can crop sub-regions for better accuracy
+  if (imageRef.startsWith("data:") && imageRef.includes("base64,")) {
+    try {
+      const [nameDataUrl, addrDataUrl] = await Promise.all([
+        cropDataUrl(imageRef, IC_REGIONS.fullName),
+        cropDataUrl(imageRef, IC_REGIONS.address),
+      ]);
+
+      const [nameLines, addrLines] = await Promise.all([
+        extractLines(nameDataUrl),
+        extractLines(addrDataUrl),
+      ]);
+
+      // Use cropped results when they yield something useful
+      const croppedName =
+        nameLines
+          .filter((l) => l.trim())
+          .join(" ")
+          .trim() || null;
+      const croppedAddr =
+        addrLines
+          .filter((l) => l.trim())
+          .join(", ")
+          .trim() || null;
+
+      return {
+        icNumber: base.icNumber,
+        fullName: croppedName ?? base.fullName,
+        address: croppedAddr ?? base.address,
+        rawLines: lines,
+      };
+    } catch {
+      // Crop failed — fall back to full-card parse
+    }
+  }
+
+  return base;
 }
