@@ -1,4 +1,4 @@
-import { desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, gte, like, lte, or } from "drizzle-orm";
 import { compare, hash } from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -67,6 +67,23 @@ const signInBody = z.object({
   password: z.string().min(8).max(128),
 });
 
+const transactionsQuery = z.object({
+  userId: z.coerce.number().int().positive().optional(),
+  senderId: z.coerce.number().int().positive().optional(),
+  receiverId: z.coerce.number().int().positive().optional(),
+  type: z.enum(["SEND", "RECEIVE", "BILL_PAYMENT"]).optional(),
+  status: z.enum(["PENDING", "COMPLETED", "FAILED"]).optional(),
+  category: z.string().max(100).optional(),
+  region: z.string().max(255).optional(),
+  merchant: z.string().max(255).optional(),
+  paymentMethod: z.string().max(100).optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  minTimestampMs: z.coerce.number().int().nonnegative().optional(),
+  maxTimestampMs: z.coerce.number().int().nonnegative().optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional().default(50),
+});
+
 function decimalToNumber(v: string | number | null | undefined): number {
   if (v === null || v === undefined) {
     return 0;
@@ -83,6 +100,78 @@ function toPublicUser(user: typeof userProfile.$inferSelect) {
 }
 
 export const usersRoutes = new Hono<HonoEnv>();
+
+usersRoutes.get("/transactions", async (c) => {
+  const parsed = transactionsQuery.safeParse(c.req.query());
+  if (!parsed.success) {
+    return c.json({ error: "validation", details: parsed.error.flatten() }, 400);
+  }
+
+  const q = parsed.data;
+  const db = requireDb();
+  const conditions = [];
+
+  if (q.userId) {
+    conditions.push(
+      or(eq(transactionData.senderId, q.userId), eq(transactionData.receiverId, q.userId)),
+    );
+  }
+  if (q.senderId) {
+    conditions.push(eq(transactionData.senderId, q.senderId));
+  }
+  if (q.receiverId) {
+    conditions.push(eq(transactionData.receiverId, q.receiverId));
+  }
+  if (q.type) {
+    conditions.push(eq(transactionData.transactionType, q.type));
+  }
+  if (q.status) {
+    conditions.push(eq(transactionData.transactionStatus, q.status));
+  }
+  if (q.category) {
+    conditions.push(eq(transactionData.category, q.category));
+  }
+  if (q.region) {
+    conditions.push(eq(transactionData.region, q.region));
+  }
+  if (q.merchant) {
+    conditions.push(like(transactionData.merchant, `%${q.merchant}%`));
+  }
+  if (q.paymentMethod) {
+    conditions.push(eq(transactionData.paymentMethod, q.paymentMethod));
+  }
+
+  const fromDate = q.from ? new Date(q.from) : null;
+  const toDate = q.to ? new Date(q.to) : null;
+  if (q.from && Number.isNaN(fromDate?.getTime())) {
+    throw new HttpError(400, "from must be a valid date string", "invalid_from");
+  }
+  if (q.to && Number.isNaN(toDate?.getTime())) {
+    throw new HttpError(400, "to must be a valid date string", "invalid_to");
+  }
+  if (fromDate) {
+    conditions.push(gte(transactionData.transactionDate, fromDate));
+  }
+  if (toDate) {
+    conditions.push(lte(transactionData.transactionDate, toDate));
+  }
+  if (q.minTimestampMs !== undefined) {
+    conditions.push(gte(transactionData.timestampMs, q.minTimestampMs));
+  }
+  if (q.maxTimestampMs !== undefined) {
+    conditions.push(lte(transactionData.timestampMs, q.maxTimestampMs));
+  }
+
+  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  const items = await db
+    .select()
+    .from(transactionData)
+    .where(whereClause)
+    .orderBy(desc(transactionData.transactionDate))
+    .limit(q.limit);
+
+  return c.json({ items, count: items.length });
+});
 
 usersRoutes.post("/auth/signup", async (c) => {
   const parsed = signUpBody.safeParse(await c.req.json().catch(() => null));
@@ -222,6 +311,20 @@ usersRoutes.post("/users", async (c) => {
     .where(eq(userProfile.userId, created.userId))
     .limit(1);
   return c.json({ user: row ? toPublicUser(row) : null }, 201);
+});
+
+usersRoutes.get("/users", async (c) => {
+  const db = requireDb();
+  const limit = Math.min(Math.max(Number(c.req.query("limit")) || 100, 1), 200);
+  const rows = await db.select().from(userProfile).orderBy(desc(userProfile.userId)).limit(limit);
+  return c.json({
+    items: rows.map((u) => ({
+      userId: u.userId,
+      fullName: u.fullName,
+      email: u.email,
+      phoneNumber: u.phoneNumber ?? null,
+    })),
+  });
 });
 
 usersRoutes.get("/users/:id", async (c) => {

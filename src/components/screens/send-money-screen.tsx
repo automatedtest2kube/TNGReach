@@ -1,34 +1,90 @@
 "use client";
 
 import { ArrowLeft, Search, Check, AlertTriangle, Shield, User } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useAccessibility } from "@/context/accessibility-context";
+import { fetchUsers, transferMoney, type UserListItem } from "@/lib/api/wallet";
 
 interface SendMoneyScreenProps {
   onBack: () => void;
+  activeUserId: number;
+  onTransferSuccess?: () => void;
 }
 
 type Step = "recipient" | "amount" | "confirm" | "highAmount" | "familyApproval" | "success";
 
-const contacts = [
-  { id: 1, name: "Ahmad Rahman", phone: "+60 12-345 6789", avatar: "AR", color: "bg-primary" },
-  { id: 2, name: "Siti Aminah", phone: "+60 13-456 7890", avatar: "SA", color: "bg-accent" },
-  { id: 3, name: "David Tan", phone: "+60 14-567 8901", avatar: "DT", color: "bg-secondary" },
-  { id: 4, name: "Maria Wong", phone: "+60 15-678 9012", avatar: "MW", color: "bg-primary" },
-  { id: 5, name: "Ali Hassan", phone: "+60 16-789 0123", avatar: "AH", color: "bg-accent" },
-];
+type Contact = {
+  id: number;
+  name: string;
+  phone: string;
+  avatar: string;
+  color: string;
+};
 
-export function SendMoneyScreen({ onBack }: SendMoneyScreenProps) {
+function initials(name: string): string {
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "U";
+  if (parts.length === 1) return parts[0]?.slice(0, 1).toUpperCase() ?? "U";
+  return `${parts[0]?.[0] ?? ""}${parts[1]?.[0] ?? ""}`.toUpperCase();
+}
+
+const avatarColors = ["bg-primary", "bg-accent", "bg-secondary"];
+
+function toContact(item: UserListItem, idx: number): Contact {
+  return {
+    id: item.userId,
+    name: item.fullName,
+    phone: item.phoneNumber || item.email || "No phone",
+    avatar: initials(item.fullName),
+    color: avatarColors[idx % avatarColors.length] ?? "bg-primary",
+  };
+}
+
+export function SendMoneyScreen({ onBack, activeUserId, onTransferSuccess }: SendMoneyScreenProps) {
   const [step, setStep] = useState<Step>("recipient");
-  const [selectedContact, setSelectedContact] = useState<(typeof contacts)[0] | null>(null);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [amount, setAmount] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [loadingContacts, setLoadingContacts] = useState(true);
+  const [contactsError, setContactsError] = useState<string | null>(null);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const { elderlyMode, t } = useAccessibility();
 
-  const filteredContacts = contacts.filter(
-    (c) =>
-      c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.phone.includes(searchQuery),
+  useEffect(() => {
+    let alive = true;
+    setLoadingContacts(true);
+    fetchUsers(200)
+      .then((items) => {
+        if (!alive) return;
+        const mapped = items
+          .filter((u) => u.userId !== activeUserId)
+          .map((u, idx) => toContact(u, idx));
+        setContacts(mapped);
+        setContactsError(null);
+      })
+      .catch((err) => {
+        if (!alive) return;
+        setContacts([]);
+        setContactsError(err instanceof Error ? err.message : "Failed to load recipients");
+      })
+      .finally(() => {
+        if (alive) setLoadingContacts(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [activeUserId]);
+
+  const filteredContacts = useMemo(
+    () =>
+      contacts.filter(
+        (c) =>
+          c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.phone.includes(searchQuery),
+      ),
+    [contacts, searchQuery],
   );
 
   const handleAmountInput = (value: string) => {
@@ -39,6 +95,7 @@ export function SendMoneyScreen({ onBack }: SendMoneyScreenProps) {
   };
 
   const handleContinueFromAmount = () => {
+    setTransferError(null);
     const parsedAmount = parseFloat(amount);
     if (parsedAmount >= 500) {
       setStep("highAmount");
@@ -48,6 +105,28 @@ export function SendMoneyScreen({ onBack }: SendMoneyScreenProps) {
   };
 
   const quickAmounts = elderlyMode ? [50, 100, 200, 500] : [10, 20, 50, 100];
+
+  const submitTransfer = async () => {
+    if (!selectedContact) return;
+    const parsedAmount = parseFloat(amount);
+    if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) return;
+    setIsSubmitting(true);
+    setTransferError(null);
+    try {
+      await transferMoney({
+        senderId: activeUserId,
+        receiverId: selectedContact.id,
+        amount: parsedAmount,
+        description: `Transfer to ${selectedContact.name}`,
+      });
+      onTransferSuccess?.();
+      setStep("success");
+    } catch (err) {
+      setTransferError(err instanceof Error ? err.message : "Transfer failed");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   // Success Screen
   if (step === "success") {
@@ -126,10 +205,11 @@ export function SendMoneyScreen({ onBack }: SendMoneyScreenProps) {
 
         <div className="py-4">
           <Button
-            onClick={() => setStep("success")}
+            onClick={() => void submitTransfer()}
+            disabled={isSubmitting}
             className={`w-full rounded-2xl gradient-primary ${elderlyMode ? "h-16 text-xl" : "h-14 text-lg"}`}
           >
-            Simulate Approval
+            {isSubmitting ? "Processing..." : "Confirm & Send"}
           </Button>
           <Button
             onClick={() => setStep("confirm")}
@@ -265,11 +345,17 @@ export function SendMoneyScreen({ onBack }: SendMoneyScreenProps) {
         </div>
 
         <div className="py-4">
+          {transferError && (
+            <p className="mb-3 rounded-xl border border-red-300/60 bg-red-100/70 px-3 py-2 text-sm text-red-700">
+              {transferError}
+            </p>
+          )}
           <Button
-            onClick={() => setStep("success")}
+            onClick={() => void submitTransfer()}
+            disabled={isSubmitting}
             className={`w-full rounded-2xl gradient-primary ${elderlyMode ? "h-16 text-xl" : "h-14 text-lg"}`}
           >
-            {t("confirm")} & {t("send")}
+            {isSubmitting ? "Sending..." : `${t("confirm")} & ${t("send")}`}
           </Button>
         </div>
       </div>
@@ -389,32 +475,42 @@ export function SendMoneyScreen({ onBack }: SendMoneyScreenProps) {
       </p>
 
       <div className="flex-1 overflow-auto">
-        <div className="bg-card rounded-2xl overflow-hidden">
-          {filteredContacts.map((contact, index) => (
-            <button
-              key={contact.id}
-              onClick={() => {
-                setSelectedContact(contact);
-                setStep("amount");
-              }}
-              className={`w-full flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors ${index !== filteredContacts.length - 1 ? "border-b border-border" : ""}`}
-            >
-              <div
-                className={`${elderlyMode ? "w-14 h-14" : "w-12 h-12"} rounded-full ${contact.color} flex items-center justify-center text-primary-foreground font-bold flex-shrink-0`}
+        {loadingContacts ? (
+          <div className="rounded-2xl bg-card p-4 text-sm text-muted-foreground">Loading recipients...</div>
+        ) : contactsError ? (
+          <div className="rounded-2xl border border-red-300/60 bg-red-100/70 p-4 text-sm text-red-700">
+            {contactsError}
+          </div>
+        ) : filteredContacts.length === 0 ? (
+          <div className="rounded-2xl bg-card p-4 text-sm text-muted-foreground">No recipients found.</div>
+        ) : (
+          <div className="bg-card rounded-2xl overflow-hidden">
+            {filteredContacts.map((contact, index) => (
+              <button
+                key={contact.id}
+                onClick={() => {
+                  setSelectedContact(contact);
+                  setStep("amount");
+                }}
+                className={`w-full flex items-center gap-4 p-4 hover:bg-muted/50 transition-colors ${index !== filteredContacts.length - 1 ? "border-b border-border" : ""}`}
               >
-                {contact.avatar}
-              </div>
-              <div className="text-left">
-                <p className={`font-medium text-foreground ${elderlyMode ? "text-lg" : ""}`}>
-                  {contact.name}
-                </p>
-                <p className={`text-muted-foreground ${elderlyMode ? "text-base" : "text-sm"}`}>
-                  {contact.phone}
-                </p>
-              </div>
-            </button>
-          ))}
-        </div>
+                <div
+                  className={`${elderlyMode ? "w-14 h-14" : "w-12 h-12"} rounded-full ${contact.color} flex items-center justify-center text-primary-foreground font-bold flex-shrink-0`}
+                >
+                  {contact.avatar}
+                </div>
+                <div className="text-left">
+                  <p className={`font-medium text-foreground ${elderlyMode ? "text-lg" : ""}`}>
+                    {contact.name}
+                  </p>
+                  <p className={`text-muted-foreground ${elderlyMode ? "text-base" : "text-sm"}`}>
+                    {contact.phone}
+                  </p>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

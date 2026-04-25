@@ -33,6 +33,7 @@ export function IntegratedWalletApp() {
   const [currentScreen, setCurrentScreen] = useState("home");
   const [isAIOpen, setIsAIOpen] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
+  const [walletRefreshKey, setWalletRefreshKey] = useState(0);
   const [profile, setProfile] = useState(FALLBACK_USER_PROFILE);
   const [activeUserId, setActiveUserId] = useState<number>(DEMO_USER_ID);
   const { isElderlyMode, chatBubbleEnabled } = useAccessibility();
@@ -216,9 +217,19 @@ export function IntegratedWalletApp() {
         </div>
       )}
       {currentScreen === "home" && (
-        <HomeScreen onNavigate={handleNavigate} activeUserId={activeUserId} />
+        <HomeScreen
+          onNavigate={handleNavigate}
+          activeUserId={activeUserId}
+          walletRefreshKey={walletRefreshKey}
+        />
       )}
-      {currentScreen === "send" && <SendMoneyScreen onBack={handleBack} />}
+      {currentScreen === "send" && (
+        <SendMoneyScreen
+          onBack={handleBack}
+          activeUserId={activeUserId}
+          onTransferSuccess={() => setWalletRefreshKey((v) => v + 1)}
+        />
+      )}
       {currentScreen === "scan" && (
         <ScanPayScreen onBack={handleBack} onNavigate={handleNavigate} />
       )}
@@ -227,7 +238,11 @@ export function IntegratedWalletApp() {
       )}
       {currentScreen === "bills" && <BillsScreen onBack={handleBack} />}
       {currentScreen === "history" && (
-        <HistoryScreen onBack={handleBack} activeUserId={activeUserId} />
+        <HistoryScreen
+          onBack={handleBack}
+          activeUserId={activeUserId}
+          walletRefreshKey={walletRefreshKey}
+        />
       )}
       {currentScreen === "profile" && (
         <ProfileScreen onBack={handleBack} onNavigate={handleNavigate} activeUserId={activeUserId} />

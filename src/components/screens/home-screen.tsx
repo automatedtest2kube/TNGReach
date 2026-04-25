@@ -32,6 +32,7 @@ import { useWalletData } from "@/hooks/use-wallet-data";
 interface HomeScreenProps {
   onNavigate: (screen: string) => void;
   activeUserId?: number;
+  walletRefreshKey?: number;
 }
 
 const homeStagger = {
@@ -49,21 +50,28 @@ const homeItem = {
 };
 const SPENDING_ALERT_DISMISSED_KEY = "tngreach.spendingAlert.dismissed";
 
-export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
+export function HomeScreen({ onNavigate, activeUserId, walletRefreshKey }: HomeScreenProps) {
   const [showBalance, setShowBalance] = useState(false);
   const [showSpendingAlertBanner, setShowSpendingAlertBanner] = useState(false);
   const [spendingAlertDismissed, setSpendingAlertDismissed] = useState(false);
   const { isElderlyMode, t } = useAccessibility();
-  const { summary } = useWalletData(activeUserId);
-  const userName = summary?.user.fullName?.split(" ")[0] || "there";
+  const { summary, loading } = useWalletData(activeUserId, walletRefreshKey);
+  const isSummaryLoading = loading && !summary;
+  const userName = summary?.user.fullName?.split(" ")[0] || "";
   const walletCurrency = summary?.wallet?.currency || "MYR";
-  const walletBalance = Number(summary?.wallet?.balance ?? 2458.5);
-  const recentTx = (summary?.transactions ?? []).slice(0, 5).map((tx, idx) => ({
-    id: tx.transactionId ?? idx + 1,
-    name: tx.description || tx.transactionType,
-    time: new Date(tx.transactionDate).toLocaleDateString(),
-    amount: Number(tx.amount),
-  }));
+  const walletBalance = Number(summary?.wallet?.balance ?? 0);
+  const recentTx = (summary?.transactions ?? []).slice(0, 5).map((tx, idx) => {
+    const rawAmount = Number(tx.amount);
+    const isIncoming = tx.receiverId === activeUserId && tx.senderId !== activeUserId;
+    const isOutgoing = tx.senderId === activeUserId && tx.receiverId !== activeUserId;
+    const signedAmount = isIncoming ? Math.abs(rawAmount) : isOutgoing ? -Math.abs(rawAmount) : rawAmount;
+    return {
+      id: tx.transactionId ?? idx + 1,
+      name: tx.description || tx.transactionType,
+      time: new Date(tx.transactionDate).toLocaleDateString(),
+      amount: signedAmount,
+    };
+  });
 
   const balanceText = useMemo(
     () =>
@@ -201,9 +209,11 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
         {/* Greeting */}
         <div className="px-5 pt-5 pb-3">
           <p className="text-xl text-[#C9D1D9]">Hello,</p>
-          <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-foreground">
-            {userName}
-          </h1>
+          {isSummaryLoading ? (
+            <div className="mt-2 h-9 w-40 animate-pulse rounded-lg bg-white/20" aria-hidden="true" />
+          ) : (
+            <h1 className="mt-1 text-3xl font-extrabold tracking-tight text-foreground">{userName}</h1>
+          )}
         </div>
 
         {/* Big Balance Card */}
@@ -230,9 +240,11 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
                 )}
               </button>
             </div>
-            <p className="text-4xl font-bold text-white tracking-tight">
-              {balanceText}
-            </p>
+            {isSummaryLoading ? (
+              <div className="h-10 w-52 animate-pulse rounded-lg bg-white/25" aria-hidden="true" />
+            ) : (
+              <p className="text-4xl font-bold text-white tracking-tight">{balanceText}</p>
+            )}
           </div>
         </div>
 
@@ -472,9 +484,11 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
       {/* Greeting */}
       <motion.div variants={homeItem} className="pt-6 pb-4">
         <p className="text-base text-foreground/55">{t("welcome")},</p>
-        <h1 className="text-3xl font-extrabold tracking-tight text-foreground">
-          {userName}
-        </h1>
+        {isSummaryLoading ? (
+          <div className="mt-2 h-9 w-44 animate-pulse rounded-lg bg-muted/70" aria-hidden="true" />
+        ) : (
+          <h1 className="text-3xl font-extrabold tracking-tight text-foreground">{userName}</h1>
+        )}
       </motion.div>
 
       {/* Balance Card */}
@@ -497,9 +511,13 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
             )}
           </button>
         </div>
-        <p className="relative z-10 text-4xl font-bold tracking-tight text-white drop-shadow-sm">
-          {balanceText}
-        </p>
+        {isSummaryLoading ? (
+          <div className="relative z-10 h-10 w-56 animate-pulse rounded-lg bg-white/25" aria-hidden="true" />
+        ) : (
+          <p className="relative z-10 text-4xl font-bold tracking-tight text-white drop-shadow-sm">
+            {balanceText}
+          </p>
+        )}
         <div className="relative z-10 mt-4 flex items-center gap-2 border-t border-white/25 pt-4">
           <div className="animate-bob rounded-full bg-white/25 p-1.5">
             <Zap className="h-4 w-4 text-white" />
