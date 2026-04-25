@@ -97,6 +97,8 @@ const BLACKLIST = [
   "KAD PENGENALAN",
   "MALAYSIA",
   "MYKAD",
+  "MYKAQ", // Textract misread of MyKad watermark
+  "MYkad",
   "WARGANEGARA",
   "NATIONALITY",
   "LELAKI",
@@ -166,7 +168,9 @@ export function parseMyKadLines(lines: RawLine[]): IcExtractResult {
   // Filter out blacklisted lines
   const clean = lines.filter((l) => {
     const upper = l.text.toUpperCase();
-    return !BLACKLIST.some((word) => upper.includes(word));
+    // Catch all MyKad watermark misreads: MYKAD, MYKAQ, MYKAL, etc.
+    if (/^MYK[A-Z]{2}$/.test(upper)) return false;
+    return !BLACKLIST.some((word) => upper.includes(word.toUpperCase()));
   });
 
   // ── IC Number ──────────────────────────────────────────────────────────────
@@ -185,35 +189,36 @@ export function parseMyKadLines(lines: RawLine[]): IcExtractResult {
   }
 
   // ── Full Name ──────────────────────────────────────────────────────────────
-  // All-alpha/space/slash lines, min 5 chars, not the IC line, not blacklisted
+  // A line that looks like part of an address even if it has no digits
+  const isAddressLike = (upper: string) =>
+    STREET_KEYWORDS.test(upper) ||
+    STATE_WORDS.some((s) => upper.includes(s)) ||
+    /^\d{5}(\s|$)/.test(upper); // postcode
+
+  // All-alpha lines, min 5 chars, not IC, not blacklisted, not address-like
   const nameCandidates = clean.filter((l) => {
     const upper = l.text.toUpperCase();
     return (
       /^[A-Z\s@'/.-]+$/.test(upper) &&
       upper.length >= 5 &&
       !IC_REGEX.test(upper) &&
-      !/\d/.test(upper)
+      !/\d/.test(upper) &&
+      !isAddressLike(upper)
     );
   });
 
-  // Pick the highest-confidence candidate; if multiple lines belong to the same
-  // name (e.g. "ROWAN SEBASTIAN" + "ATKINSON"), join them in document order.
-  // Heuristic: consecutive name candidates are joined; take the first group.
   let fullName: string | null = null;
   let nameConfidence = 0;
 
   if (nameCandidates.length > 0) {
-    // Sort by original document order (top-to-bottom index in clean array)
-    const ordered = nameCandidates.slice().sort((a, b) => {
-      return lines.indexOf(a) - lines.indexOf(b);
-    });
+    // Sort by original document order
+    const ordered = nameCandidates.slice().sort((a, b) => lines.indexOf(a) - lines.indexOf(b));
 
-    // Collect consecutive name lines (no non-name line between them)
+    // Collect consecutive name lines; stop if a non-name line falls between them
     const nameGroup: RawLine[] = [ordered[0]];
     for (let i = 1; i < ordered.length; i++) {
       const prevIdx = lines.indexOf(ordered[i - 1]);
       const currIdx = lines.indexOf(ordered[i]);
-      // Allow at most 1 intervening line (e.g. a blank or noise line)
       if (currIdx - prevIdx <= 2) {
         nameGroup.push(ordered[i]);
       } else {
