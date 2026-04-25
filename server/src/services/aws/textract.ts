@@ -45,7 +45,7 @@ async function imageBytesFromRef(inputRef: string): Promise<Uint8Array> {
 /** Call Textract and return raw lines with confidence, sorted top-to-bottom */
 async function callTextract(bytes: Uint8Array): Promise<RawLine[]> {
   const out = await getClient().send(new DetectDocumentTextCommand({ Document: { Bytes: bytes } }));
-  return (out.Blocks ?? [])
+  const lines = (out.Blocks ?? [])
     .filter((b: Block) => b.BlockType === "LINE" && b.Text)
     .sort((a: Block, b: Block) => {
       const ay = a.Geometry?.BoundingBox?.Top ?? 0;
@@ -55,8 +55,20 @@ async function callTextract(bytes: Uint8Array): Promise<RawLine[]> {
     .map((b: Block) => ({
       text: (b.Text as string).trim(),
       confidence: b.Confidence ?? 0,
+      top: b.Geometry?.BoundingBox?.Top ?? 0,
+      left: b.Geometry?.BoundingBox?.Left ?? 0,
     }))
     .filter((l) => l.text.length > 0);
+
+  // Debug: log every raw line Textract returns so we can verify parsing inputs
+  console.log("[textract] raw lines from OCR:");
+  lines.forEach((l, i) =>
+    console.log(
+      `  [${i}] top=${l.top.toFixed(3)} left=${l.left.toFixed(3)} conf=${l.confidence.toFixed(1)} | "${l.text}"`,
+    ),
+  );
+
+  return lines.map(({ text, confidence }) => ({ text, confidence }));
 }
 
 // ── Image pre-processing ───────────────────────────────────────────────────
@@ -233,6 +245,8 @@ export function parseMyKadLines(lines: RawLine[]): IcExtractResult {
 
   const needsReview = !fullName || !icNumber || !address;
 
+  console.log("[textract] parse result:", { icNumber, fullName, address, needsReview });
+
   return {
     icNumber,
     fullName,
@@ -268,4 +282,54 @@ export async function extractIcFields(imageRef: string): Promise<IcExtractResult
 
   const lines = await callTextract(bytes);
   return parseMyKadLines(lines);
+}
+
+export interface DebugScanResult {
+  rawLines: Array<{ text: string; confidence: number; top: number; left: number }>;
+  parsed: IcExtractResult;
+  enhanced: boolean;
+}
+
+/**
+ * Debug helper — returns raw Textract lines with geometry AND the parsed result.
+ * Exposes exactly what OCR sees before and after parsing so mismatches are obvious.
+ */
+export async function debugScanRaw(imageRef: string): Promise<DebugScanResult> {
+  const isDataUrl = imageRef.startsWith("data:") && imageRef.includes("base64,");
+  let bytes: Uint8Array;
+  let enhanced = false;
+
+  if (isDataUrl) {
+    try {
+      const b64 = imageRef.split("base64,")[1]!;
+      const inputBuf = Buffer.from(b64, "base64");
+      bytes = await enhanceCard(inputBuf);
+      enhanced = true;
+    } catch {
+      bytes = await imageBytesFromRef(imageRef);
+    }
+  } else {
+    bytes = await imageBytesFromRef(imageRef);
+  }
+
+  // Call Textract directly and keep geometry for the debug response
+  const out = await getClient().send(new DetectDocumentTextCommand({ Document: { Bytes: bytes } }));
+  const rawLines = (out.Blocks ?? [])
+    .filter((b: Block) => b.BlockType === "LINE" && b.Text)
+    .sort((a: Block, b: Block) => {
+      const ay = a.Geometry?.BoundingBox?.Top ?? 0;
+      const by = b.Geometry?.BoundingBox?.Top ?? 0;
+      return ay - by;
+    })
+    .map((b: Block) => ({
+      text: (b.Text as string).trim(),
+      confidence: b.Confidence ?? 0,
+      top: b.Geometry?.BoundingBox?.Top ?? 0,
+      left: b.Geometry?.BoundingBox?.Left ?? 0,
+    }))
+    .filter((l) => l.text.length > 0);
+
+  const parsed = parseMyKadLines(rawLines.map(({ text, confidence }) => ({ text, confidence })));
+
+  return { rawLines, parsed, enhanced };
 }
