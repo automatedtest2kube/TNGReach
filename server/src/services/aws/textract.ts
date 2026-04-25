@@ -97,6 +97,8 @@ const BLACKLIST = [
   "KAD PENGENALAN",
   "MALAYSIA",
   "MYKAD",
+  "MYKAQ", // Textract misread of MyKad watermark
+  "MYkad",
   "WARGANEGARA",
   "NATIONALITY",
   "LELAKI",
@@ -166,7 +168,9 @@ export function parseMyKadLines(lines: RawLine[]): IcExtractResult {
   // Filter out blacklisted lines
   const clean = lines.filter((l) => {
     const upper = l.text.toUpperCase();
-    return !BLACKLIST.some((word) => upper.includes(word));
+    // Catch all MyKad watermark misreads: MYKAD, MYKAQ, MYKAL, etc.
+    if (/^MYK[A-Z]{2}$/.test(upper)) return false;
+    return !BLACKLIST.some((word) => upper.includes(word.toUpperCase()));
   });
 
   // ── IC Number ──────────────────────────────────────────────────────────────
