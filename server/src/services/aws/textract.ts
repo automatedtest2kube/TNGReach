@@ -99,6 +99,8 @@ const BLACKLIST = [
   "MYKAD",
   "MYKAQ", // Textract misread of MyKad watermark
   "MYkad",
+  "IDENTITY",
+  "CARD",
   "WARGANEGARA",
   "NATIONALITY",
   "LELAKI",
@@ -165,13 +167,23 @@ export interface IcExtractResult {
 export function parseMyKadLines(lines: RawLine[]): IcExtractResult {
   const rawLineTexts = lines.map((l) => l.text);
 
-  // Filter out blacklisted lines
-  const clean = lines.filter((l) => {
-    const upper = l.text.toUpperCase();
-    // Catch all MyKad watermark misreads: MYKAD, MYKAQ, MYKAL, etc.
-    if (/^MYK[A-Z]{2}$/.test(upper)) return false;
-    return !BLACKLIST.some((word) => upper.includes(word.toUpperCase()));
-  });
+  // Watermark tokens Textract sometimes merges into adjacent text lines
+  const WATERMARK_TOKENS = /\bMYK[A-Z]{1,3}\b/gi;
+
+  // Scrub watermark tokens from line text, then filter out blacklisted lines
+  const clean = lines
+    .map((l) => ({
+      ...l,
+      text: l.text
+        .replace(WATERMARK_TOKENS, "")
+        .replace(/\s{2,}/g, " ")
+        .trim(),
+    }))
+    .filter((l) => {
+      if (!l.text) return false;
+      const upper = l.text.toUpperCase();
+      return !BLACKLIST.some((word) => upper.includes(word.toUpperCase()));
+    });
 
   // ── IC Number ──────────────────────────────────────────────────────────────
   let icNumber: string | null = null;
@@ -195,15 +207,26 @@ export function parseMyKadLines(lines: RawLine[]): IcExtractResult {
     STATE_WORDS.some((s) => upper.includes(s)) ||
     /^\d{5}(\s|$)/.test(upper); // postcode
 
-  // All-alpha lines, min 5 chars, not IC, not blacklisted, not address-like
+  // Words that appear on document headers/labels but never in a Malaysian name
+  const LABEL_WORDS =
+    /\b(IDENTITY|CARD|PENGENALAN|IDENTIFICATION|REPUBLIC|PASSPORT|DOCUMENT|NOMBOR|NUMBER|NO\.?|TARIKH|DATE|BIRTH|LAHIR|JANTINA|GENDER|BANGSA|RACE|AGAMA|RELIGION)\b/;
+
+  // Names must appear after the IC number line in document order
+  const icLineIdx = icLineText ? lines.findIndex((l) => l.text === icLineText) : -1;
+
+  // All-alpha lines, min 5 chars, not IC, not blacklisted, not address-like,
+  // not a document label, and positioned after the IC number
   const nameCandidates = clean.filter((l) => {
     const upper = l.text.toUpperCase();
+    const lineIdx = lines.findIndex((r) => r.text === l.text);
     return (
       /^[A-Z\s@'/.-]+$/.test(upper) &&
-      upper.length >= 5 &&
+      upper.trim().length >= 5 &&
       !IC_REGEX.test(upper) &&
       !/\d/.test(upper) &&
-      !isAddressLike(upper)
+      !isAddressLike(upper) &&
+      !LABEL_WORDS.test(upper) &&
+      lineIdx > icLineIdx // must come after IC number
     );
   });
 
