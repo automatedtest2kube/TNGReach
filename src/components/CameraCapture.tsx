@@ -171,6 +171,15 @@ export function CameraCapture({
                 {hint}
               </div>
             )}
+            {/* IC alignment tips — shown when not a selfie and camera is ready */}
+            {facingMode === "environment" && ready && (
+              <div className="pointer-events-none absolute inset-x-2 top-2 flex flex-col gap-0.5 rounded-xl bg-black/50 px-3 py-2 text-[10px] leading-tight text-white/90">
+                <span className="font-semibold text-brand-blue">📋 Scanning tips</span>
+                <span>• Hold card flat — no tilt or rotation</span>
+                <span>• Card should fill most of the frame</span>
+                <span>• Keep text sharp and well-lit</span>
+              </div>
+            )}
           </>
         )}
       </div>
