@@ -27,6 +27,13 @@ export type UserSummary = {
   transactions: TransactionRow[];
 };
 
+export type UserListItem = {
+  userId: number;
+  fullName: string;
+  email: string;
+  phoneNumber: string | null;
+};
+
 export async function ensureDemoUser(): Promise<void> {
   const getRes = await backendFetch(`/api/v1/users/${DEMO_USER_ID}`);
   if (getRes.ok) {
@@ -68,4 +75,30 @@ export async function fetchUserTransactions(
   }
   const body = (await res.json()) as { items: TransactionRow[] };
   return body.items;
+}
+
+export async function fetchUsers(limit = 100): Promise<UserListItem[]> {
+  const res = await backendFetch(`/api/v1/users?limit=${limit}`);
+  if (!res.ok) {
+    throw new Error(`Unable to fetch users (${res.status})`);
+  }
+  const body = (await res.json()) as { items: UserListItem[] };
+  return body.items;
+}
+
+export async function transferMoney(args: {
+  senderId: number;
+  receiverId: number;
+  amount: number;
+  description?: string;
+}): Promise<{ senderBalance: number; receiverBalance: number }> {
+  const res = await backendFetch("/api/v1/wallet/transfer", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(args),
+  });
+  if (!res.ok) {
+    throw new Error(`Unable to transfer money (${res.status})`);
+  }
+  return (await res.json()) as { senderBalance: number; receiverBalance: number };
 }

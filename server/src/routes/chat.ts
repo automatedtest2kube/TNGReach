@@ -38,19 +38,59 @@ function decimalToNumber(v: string | number | null | undefined): number {
   return Number.parseFloat(v);
 }
 
+function cleanTargetName(raw: string): string {
+  let s = raw
+    .trim()
+    .replace(/^[^a-zA-Z]+/, "")
+    .replace(/[^a-zA-Z\s.'-]+$/g, "");
+  const trailingNoise = ["please", "pls", "now", "thanks", "thank you", "lah", "ya"];
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const noise of trailingNoise) {
+      const next = s.replace(new RegExp(`\\s+${noise}$`, "i"), "").trim();
+      if (next !== s) {
+        s = next;
+        changed = true;
+      }
+    }
+  }
+  return s;
+}
+
 function parseSendIntent(text: string): { amount: number; target: string } | null {
-  const m = text.match(/send\s+rm?\s*([\d]+(?:\.\d{1,2})?)\s+to\s+(.+)/i);
-  if (!m) return null;
-  const amount = Number.parseFloat(m[1] ?? "0");
-  const target = (m[2] ?? "").trim();
+  const lower = text.toLowerCase();
+  const hasSendKeyword = /\b(send|transfer|pay)\b/i.test(text);
+  if (!hasSendKeyword) return null;
+  if (/\bparking|parkir\b/i.test(text)) return null;
+
+  const amountMatch = text.match(/(?:rm|myr)\s*([\d]+(?:\.\d{1,2})?)|([\d]+(?:\.\d{1,2})?)\s*(?:rm|myr)\b/i);
+  if (!amountMatch) return null;
+  const amount = Number.parseFloat(amountMatch[1] ?? amountMatch[2] ?? "0");
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+
+  let target = "";
+  const explicitTarget = text.match(/\b(?:to|for)\s+([a-z][a-z\s.'-]{1,80})$/i);
+  if (explicitTarget?.[1]) {
+    target = cleanTargetName(explicitTarget[1]);
+  } else {
+    const sendThenName = text.match(/\b(?:send|transfer|pay)\s+([a-z][a-z\s.'-]{1,60})\s+(?:rm|myr)?\s*[\d]/i);
+    if (sendThenName?.[1]) {
+      target = cleanTargetName(sendThenName[1]);
+    }
+  }
+
+  if (!target || target.length < 2) return null;
+  if (/\b(parking|parkir)\b/i.test(target)) return null;
   if (!Number.isFinite(amount) || amount <= 0 || !target) return null;
   return { amount, target };
 }
 
 function parseParkingIntent(text: string): { amount: number } | null {
-  if (!/pay\s+parking|parking\s+pay/i.test(text)) return null;
-  const m = text.match(/rm?\s*([\d]+(?:\.\d{1,2})?)/i);
-  const amount = m ? Number.parseFloat(m[1] ?? "0") : 6;
+  const hasParkingKeyword = /\b(parking|parkir)\b/i.test(text);
+  if (!hasParkingKeyword) return null;
+  const rmAmount = text.match(/(?:rm|myr)\s*([\d]+(?:\.\d{1,2})?)/i);
+  const amount = rmAmount ? Number.parseFloat(rmAmount[1] ?? "0") : 6;
   if (!Number.isFinite(amount) || amount <= 0) return null;
   return { amount };
 }

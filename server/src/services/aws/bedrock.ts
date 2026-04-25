@@ -48,6 +48,28 @@ function toBedrockMessages(messages: ChatMessage[]): Message[] {
   }));
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isBedrockThrottled(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const e = error as { name?: string; message?: string; $metadata?: { httpStatusCode?: number } };
+  if (e.$metadata?.httpStatusCode === 429) {
+    return true;
+  }
+  const name = (e.name ?? "").toLowerCase();
+  const message = (e.message ?? "").toLowerCase();
+  return (
+    name.includes("throttl") ||
+    name.includes("toomanyrequest") ||
+    message.includes("too many requests") ||
+    message.includes("rate exceeded")
+  );
+}
+
 export async function chatWithBedrock(args: {
   messages: ChatMessage[];
   systemPrompt?: string;
@@ -70,21 +92,40 @@ export async function chatWithBedrock(args: {
     throw new HttpError(400, "At least one user message is required", "messages_missing_user");
   }
 
+  const command = new ConverseCommand({
+    modelId,
+    messages: toBedrockMessages(normalizedMessages),
+    system: args.systemPrompt ? [{ text: args.systemPrompt }] : undefined,
+    inferenceConfig: {
+      maxTokens: config.AWS_BEDROCK_MAX_TOKENS,
+      temperature: config.AWS_BEDROCK_TEMPERATURE,
+    },
+  });
+
+  const maxAttempts = 4;
   let response;
-  try {
-    response = await getClient().send(
-      new ConverseCommand({
-        modelId,
-        messages: toBedrockMessages(normalizedMessages),
-        system: args.systemPrompt ? [{ text: args.systemPrompt }] : undefined,
-        inferenceConfig: {
-          maxTokens: config.AWS_BEDROCK_MAX_TOKENS,
-          temperature: config.AWS_BEDROCK_TEMPERATURE,
-        },
-      }),
-    );
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Bedrock request failed";
+  let lastError: unknown = null;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      response = await getClient().send(command);
+      lastError = null;
+      break;
+    } catch (error) {
+      lastError = error;
+      const throttled = isBedrockThrottled(error);
+      const canRetry = throttled && attempt < maxAttempts;
+      if (!canRetry) {
+        break;
+      }
+      const backoffMs = 300 * 2 ** (attempt - 1) + Math.floor(Math.random() * 150);
+      await sleep(backoffMs);
+    }
+  }
+  if (!response) {
+    const message = lastError instanceof Error ? lastError.message : "Bedrock request failed";
+    if (isBedrockThrottled(lastError)) {
+      throw new HttpError(429, `Bedrock error: ${message}`, "bedrock_request_failed");
+    }
     throw new HttpError(502, `Bedrock error: ${message}`, "bedrock_request_failed");
   }
 

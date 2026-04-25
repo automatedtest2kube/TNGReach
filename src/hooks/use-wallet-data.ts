@@ -13,7 +13,7 @@ const initialState: WalletDataState = {
   summary: null,
 };
 
-export function useWalletData(userId = DEMO_USER_ID): WalletDataState {
+export function useWalletData(userId = DEMO_USER_ID, refreshKey = 0): WalletDataState {
   const [state, setState] = useState<WalletDataState>(initialState);
 
   useEffect(() => {
@@ -41,7 +41,7 @@ export function useWalletData(userId = DEMO_USER_ID): WalletDataState {
     return () => {
       alive = false;
     };
-  }, [userId]);
+  }, [userId, refreshKey]);
 
   return state;
 }

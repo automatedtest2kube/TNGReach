@@ -34,6 +34,7 @@ const pageItem = {
 interface HistoryScreenProps {
   onBack: () => void;
   activeUserId?: number;
+  walletRefreshKey?: number;
 }
 
 const transactions = [
@@ -140,10 +141,10 @@ const transactions = [
 
 const filters = ["All", "Income", "Expense", "Transfer", "Bills"];
 
-export function HistoryScreen({ onBack, activeUserId }: HistoryScreenProps) {
+export function HistoryScreen({ onBack, activeUserId, walletRefreshKey }: HistoryScreenProps) {
   const [activeFilter, setActiveFilter] = useState("All");
   const { elderlyMode, t } = useAccessibility();
-  const { summary } = useWalletData(activeUserId);
+  const { summary } = useWalletData(activeUserId, walletRefreshKey);
 
   const backendTransactions =
     summary?.transactions.map((tx) => {
@@ -153,6 +154,9 @@ export function HistoryScreen({ onBack, activeUserId }: HistoryScreenProps) {
       const category =
         kind === "RECEIVE" ? "Top Up" : kind === "BILL_PAYMENT" ? "Bills" : "Transfer";
       const dateObj = new Date(tx.transactionDate);
+      const isIncoming = tx.receiverId === activeUserId && tx.senderId !== activeUserId;
+      const isOutgoing = tx.senderId === activeUserId && tx.receiverId !== activeUserId;
+      const signedAmount = isIncoming ? Math.abs(amount) : isOutgoing ? -Math.abs(amount) : amount;
       return {
         id: tx.transactionId,
         icon,
@@ -160,7 +164,7 @@ export function HistoryScreen({ onBack, activeUserId }: HistoryScreenProps) {
         category,
         date: dateObj.toLocaleDateString(),
         time: dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        amount: kind === "RECEIVE" ? Math.abs(amount) : -Math.abs(amount),
+        amount: signedAmount,
         status: tx.transactionStatus.toLowerCase(),
         color: kind === "RECEIVE" ? "#3FB950" : kind === "BILL_PAYMENT" ? "#D29922" : "#806EF8",
       };
