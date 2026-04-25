@@ -8,6 +8,7 @@ interface Props {
   captured: string | null;
   onRetake: () => void;
   hint?: string;
+  allowUpload?: boolean; // show "Upload from device" option
 }
 
 /**
@@ -22,9 +23,11 @@ export function CameraCapture({
   captured,
   onRetake,
   hint,
+  allowUpload = false,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -92,6 +95,18 @@ export function CameraCapture({
     }
     ctx.drawImage(video, 0, 0, w, h);
     onCapture(canvas.toDataURL("image/jpeg", 0.9));
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const result = ev.target?.result;
+      if (typeof result === "string") onCapture(result);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   const isCircle = shape === "circle";
@@ -168,6 +183,25 @@ export function CameraCapture({
         <span>{captured ? "🔄" : facingMode === "user" ? "📸" : "📷"}</span>
         {captured ? "Retake" : facingMode === "user" ? "Take selfie" : "Capture now"}
       </button>
+
+      {allowUpload && !captured && (
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleFileUpload}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-brand-purple/20 bg-white/60 py-2.5 text-[12px] font-bold text-brand-purple/80 transition hover:bg-white/80"
+          >
+            <span>📁</span>
+            Upload from device
+          </button>
+        </>
+      )}
     </div>
   );
 }

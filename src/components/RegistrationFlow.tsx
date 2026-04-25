@@ -32,11 +32,66 @@ export function RegistrationFlow({ onComplete }: { onComplete?: () => void }) {
   const [idType, setIdType] = useState<IdType>("ic");
   const [icImage, setIcImage] = useState<string | null>(null);
   const [selfieImage, setSelfieImage] = useState<string | null>(null);
-  const [icNo, setIcNo] = useState("880123-14-5678");
-  const [fullName, setFullName] = useState("Nurul Aisyah binti Rahman");
-  const [address, setAddress] = useState(
-    "12, Jalan Bunga Raya, Taman Melati,\n53100 Kuala Lumpur, Malaysia",
-  );
+  const [icNo, setIcNo] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [address, setAddress] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "";
+
+  const handleIcCapture = async (dataUrl: string) => {
+    setIcImage(dataUrl);
+    setScanning(true);
+    setScanError(null);
+    setIcNo("");
+    setFullName("");
+    setAddress("");
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/ekyc/scan-ic`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageRef: dataUrl }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setScanError(data?.message ?? "Scan failed. Please retake the photo.");
+        return;
+      }
+      const { extracted } = data;
+      setIcNo(extracted?.icNumber ?? "");
+      setFullName(extracted?.fullName ?? "");
+      setAddress(extracted?.address ?? "");
+    } catch {
+      setScanError("Could not reach the server. Check your connection.");
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleConfirm = async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/v1/ekyc/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ icNumber: icNo.replace(/[-\s]/g, ""), fullName, address }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setSaveError(data?.message ?? "Could not save your profile. Please try again.");
+        return;
+      }
+      setStep((s) => s + 1);
+    } catch {
+      setSaveError("Could not reach the server. Check your connection.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const TOTAL = 6;
   const next = () => {
@@ -76,7 +131,7 @@ export function RegistrationFlow({ onComplete }: { onComplete?: () => void }) {
     (step === 1 && !lang) ||
     (step === 2 && !accountType) ||
     (step === 3 && !icImage) ||
-    (step === 4 && (!icNo.trim() || !fullName.trim() || !address.trim())) ||
+    (step === 4 && (scanning || saving || !icNo.trim() || !fullName.trim() || !address.trim())) ||
     (step === 5 && !selfieImage);
 
   const ctaLabel = [
@@ -84,7 +139,7 @@ export function RegistrationFlow({ onComplete }: { onComplete?: () => void }) {
     "Continue",
     "Continue",
     icImage ? "Looks good" : "Capture ID first",
-    "Confirm details",
+    saving ? "Saving…" : "Confirm details",
     selfieImage ? "Finish setup" : "Take selfie first",
   ][step];
 
@@ -161,7 +216,11 @@ export function RegistrationFlow({ onComplete }: { onComplete?: () => void }) {
           {step === 0 && (
             <div className="flex flex-col items-center gap-3 py-2 text-center">
               <span className="badge-welcome max-w-full">
-                <Sparkles className="h-3.5 w-3.5 shrink-0 text-brand-orange" strokeWidth={2.5} aria-hidden />
+                <Sparkles
+                  className="h-3.5 w-3.5 shrink-0 text-brand-orange"
+                  strokeWidth={2.5}
+                  aria-hidden
+                />
                 Welcome aboard
               </span>
               <motion.div
@@ -310,9 +369,16 @@ export function RegistrationFlow({ onComplete }: { onComplete?: () => void }) {
                 shape="rect"
                 aspect="1.6 / 1"
                 captured={icImage}
-                onCapture={setIcImage}
-                onRetake={() => setIcImage(null)}
+                onCapture={handleIcCapture}
+                onRetake={() => {
+                  setIcImage(null);
+                  setIcNo("");
+                  setFullName("");
+                  setAddress("");
+                  setScanError(null);
+                }}
                 hint={`Place ${idType === "ic" ? "IC" : "passport"} inside the frame`}
+                allowUpload
               />
 
               <p className="flex items-center gap-1.5 px-1 text-[11px] text-foreground/55">
@@ -337,14 +403,35 @@ export function RegistrationFlow({ onComplete }: { onComplete?: () => void }) {
                     className="h-12 w-20 rounded-lg object-cover ring-1 ring-brand-purple/20"
                   />
                   <div className="flex-1">
-                    <div className="text-[12px] font-bold text-foreground">Scan complete</div>
-                    <div className="text-[11px] text-foreground/55">
-                      Please confirm the info below
-                    </div>
+                    {scanning ? (
+                      <>
+                        <div className="text-[12px] font-bold text-brand-purple">Scanning…</div>
+                        <div className="text-[11px] text-foreground/55">
+                          Extracting your details
+                        </div>
+                      </>
+                    ) : scanError ? (
+                      <>
+                        <div className="text-[12px] font-bold text-red-500">Scan failed</div>
+                        <div className="text-[11px] text-foreground/55">{scanError}</div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="text-[12px] font-bold text-foreground">Scan complete</div>
+                        <div className="text-[11px] text-foreground/55">
+                          Please confirm the info below
+                        </div>
+                      </>
+                    )}
                   </div>
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-brand-blue to-brand-purple text-[11px] text-white shadow-md">
-                    ✓
-                  </span>
+                  {!scanning && !scanError && (
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-brand-blue to-brand-purple text-[11px] text-white shadow-md">
+                      ✓
+                    </span>
+                  )}
+                  {scanning && (
+                    <span className="h-5 w-5 animate-spin rounded-full border-2 border-brand-purple border-t-transparent" />
+                  )}
                 </div>
               )}
 
@@ -383,6 +470,12 @@ export function RegistrationFlow({ onComplete }: { onComplete?: () => void }) {
                 <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-brand-purple" />
                 Tap any field to correct it before continuing.
               </p>
+
+              {saveError && (
+                <p className="rounded-xl bg-red-50 px-3 py-2 text-[12px] font-medium text-red-500">
+                  {saveError}
+                </p>
+              )}
             </div>
           )}
 
@@ -408,7 +501,7 @@ export function RegistrationFlow({ onComplete }: { onComplete?: () => void }) {
       {/* CTA */}
       <div className="relative z-10 px-5 pb-5 pt-4">
         <button
-          onClick={next}
+          onClick={step === 4 ? handleConfirm : next}
           disabled={ctaDisabled}
           className="group relative w-full overflow-hidden rounded-2xl bg-[linear-gradient(135deg,var(--brand-blue),var(--brand-purple)_45%,var(--brand-orange))] bg-[length:200%_auto] px-6 py-4 text-base font-bold text-white shadow-[0_15px_35px_-10px_rgba(120,80,220,0.7),inset_0_1px_0_0_rgba(255,255,255,0.4)] transition-transform duration-200 active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none [animation:gradientShift_3s_ease_infinite,ringPulse_2s_ease-in-out_infinite] disabled:[animation:none]"
         >
