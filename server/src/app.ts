@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import { getConfig } from "./config";
 import { HttpError } from "./lib/http-error";
 import { requestIdMiddleware } from "./middleware/request-id";
+import { chatRoutes } from "./routes/chat";
 import { ekycRoutes } from "./routes/ekyc";
 import { healthRoutes } from "./routes/health";
 import { integrationRoutes } from "./routes/integrations";
@@ -35,6 +36,7 @@ export function createApp() {
 
   app.route("/", healthRoutes);
   app.route("/api/v1", ekycRoutes);
+  app.route("/api/v1", chatRoutes);
   app.route("/api/v1", integrationRoutes);
   app.route("/api/v1", jobsRoutes);
   app.route("/api/v1", storageRoutes);

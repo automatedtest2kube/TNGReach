@@ -17,6 +17,15 @@ const createUserBody = z.object({
   address: z.string().optional(),
   icNumber: z.string().max(12).optional(),
   passportNumber: z.string().max(20).optional(),
+  age: z.number().int().min(0).max(120).optional(),
+  incomeGroup: z.string().max(20).optional(),
+  region: z.string().max(255).optional(),
+  homeLon: z.number().min(-180).max(180).optional(),
+  homeLat: z.number().min(-90).max(90).optional(),
+  subsidies: z
+    .array(z.object({ name: z.string().min(1), amount: z.number().nonnegative() }))
+    .optional(),
+  spendingByCategory: z.record(z.number().nonnegative()).optional(),
   currency: z.string().max(10).optional(),
 });
 
@@ -175,6 +184,13 @@ usersRoutes.post("/users", async (c) => {
       address: body.address ?? null,
       icNumber: body.icNumber ?? null,
       passportNumber: body.passportNumber ?? null,
+      age: body.age ?? null,
+      incomeGroup: body.incomeGroup ?? null,
+      region: body.region ?? null,
+      homeLon: body.homeLon?.toFixed(6) ?? null,
+      homeLat: body.homeLat?.toFixed(6) ?? null,
+      subsidies: body.subsidies ?? null,
+      spendingByCategory: body.spendingByCategory ?? null,
     })
     .$returningId();
 

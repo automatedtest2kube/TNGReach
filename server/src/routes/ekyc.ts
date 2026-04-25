@@ -3,11 +3,26 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { requireDb } from "../db";
 import { HttpError } from "../lib/http-error";
-import { extractIcFields } from "../services/aws/textract";
+import { extractIcFields, debugScanRaw } from "../services/aws/textract";
 import type { HonoEnv } from "../types/hono-env";
 import { userProfile, walletBalance } from "../db/schema";
 
 export const ekycRoutes = new Hono<HonoEnv>();
+
+/**
+ * POST /api/v1/ekyc/debug-scan
+ * Returns raw Textract lines (with geometry + confidence) and the parsed result
+ * side-by-side. Use this to diagnose parsing issues without touching the DB.
+ */
+ekycRoutes.post("/ekyc/debug-scan", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = z.object({ imageRef: z.string().min(1) }).safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "validation", details: parsed.error.flatten() }, 400);
+  }
+  const result = await debugScanRaw(parsed.data.imageRef);
+  return c.json(result);
+});
 
 /**
  * POST /api/v1/ekyc/scan-ic
@@ -26,10 +41,9 @@ ekycRoutes.post("/ekyc/scan-ic", async (c) => {
   if (!extracted.icNumber) {
     throw new HttpError(422, "Could not detect an IC number in the image", "ic_number_not_found");
   }
-  if (!extracted.fullName) {
-    throw new HttpError(422, "Could not detect a full name in the image", "full_name_not_found");
-  }
 
+  // fullName or address missing — return the partial result with needsReview=true
+  // so the frontend can prompt the user to fill in the gaps manually
   return c.json({ extracted });
 });
 

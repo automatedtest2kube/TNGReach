@@ -55,7 +55,7 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
   const [spendingAlertDismissed, setSpendingAlertDismissed] = useState(false);
   const { isElderlyMode, t } = useAccessibility();
   const { summary } = useWalletData(activeUserId);
-  const userName = summary?.user.fullName?.split(" ")[0] || "Sarah";
+  const userName = summary?.user.fullName?.split(" ")[0] || "there";
   const walletCurrency = summary?.wallet?.currency || "MYR";
   const walletBalance = Number(summary?.wallet?.balance ?? 2458.5);
   const recentTx = (summary?.transactions ?? []).slice(0, 5).map((tx, idx) => ({

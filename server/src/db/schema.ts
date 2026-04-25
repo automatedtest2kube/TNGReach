@@ -1,4 +1,5 @@
 import {
+  bigint,
   date,
   decimal,
   index,
@@ -36,11 +37,19 @@ export const userProfile = mysqlTable("user_profile", {
   userId: int("user_id").autoincrement().primaryKey(),
   fullName: varchar("full_name", { length: 255 }).notNull(),
   email: varchar("email", { length: 255 }).unique(),
+  passwordHash: varchar("password_hash", { length: 255 }),
   phoneNumber: varchar("phone_number", { length: 20 }),
   dateOfBirth: date("date_of_birth"),
   address: text("address"),
   icNumber: varchar("ic_number", { length: 12 }).unique(),
   passportNumber: varchar("passport_number", { length: 20 }).unique(),
+  age: int("age"),
+  incomeGroup: varchar("income_group", { length: 20 }),
+  region: varchar("region", { length: 255 }),
+  homeLon: decimal("home_lon", { precision: 10, scale: 6 }),
+  homeLat: decimal("home_lat", { precision: 10, scale: 6 }),
+  subsidies: json("subsidies").$type<Array<{ name: string; amount: number }>>(),
+  spendingByCategory: json("spending_by_category").$type<Record<string, number>>(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow().onUpdateNow(),
 });
@@ -85,6 +94,7 @@ export const transactionData = mysqlTable(
   "transaction_data",
   {
     transactionId: int("transaction_id").autoincrement().primaryKey(),
+    externalTransactionId: varchar("external_transaction_id", { length: 64 }),
     senderId: int("sender_id")
       .notNull()
       .references(() => userProfile.userId, { onDelete: "restrict" }),
@@ -96,6 +106,14 @@ export const transactionData = mysqlTable(
     transactionStatus: transactionStatusEnum.notNull(),
     transactionDate: timestamp("transaction_date").notNull().defaultNow(),
     description: text("description"),
+    merchant: varchar("merchant", { length: 255 }),
+    category: varchar("category", { length: 100 }),
+    region: varchar("region", { length: 255 }),
+    lon: decimal("lon", { precision: 10, scale: 6 }),
+    lat: decimal("lat", { precision: 10, scale: 6 }),
+    timestampMs: bigint("timestamp_ms", { mode: "number" }),
+    paymentMethod: varchar("payment_method", { length: 100 }),
+    reference: varchar("reference", { length: 64 }),
   },
   (t) => [
     index("txn_sender_idx").on(t.senderId),
