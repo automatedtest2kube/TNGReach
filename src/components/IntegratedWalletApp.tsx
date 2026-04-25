@@ -102,7 +102,11 @@ export function IntegratedWalletApp() {
   const handleBack = () => handleNavigate("home");
   const showBottomNav = ["home", "history", "ai-insights", "profile"].includes(currentScreen);
   const showHeader = currentScreen === "home";
-  const showChatBubble = chatBubbleEnabled && !isAIOpen && (!showHeader || !headerVisible);
+  const showChatBubble =
+    chatBubbleEnabled &&
+    !isAIOpen &&
+    (!showHeader || !headerVisible) &&
+    !(isElderlyMode && currentScreen === "ai-voice");
   const backendIsUp = Boolean(backendHealth?.ok && backendHealth?.db === "ok");
   const backendLabel = backendIsUp
     ? "Backend live"
@@ -189,20 +193,25 @@ export function IntegratedWalletApp() {
       )}
       {showHeader && (
         <div className="px-5 pb-2">
-          <div
-            className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold"
-            style={{
-              color: backendIsUp ? "#166534" : "#9A3412",
-              background: backendIsUp ? "rgba(34,197,94,0.12)" : "rgba(251,146,60,0.15)",
-              borderColor: backendIsUp ? "rgba(34,197,94,0.35)" : "rgba(251,146,60,0.35)",
-            }}
-          >
-            <span
-              className="h-2 w-2 rounded-full"
-              style={{ background: backendIsUp ? "#22C55E" : "#FB923C" }}
-              aria-hidden
-            />
-            {backendLabel}
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold"
+              style={{
+                color: backendIsUp ? "#166534" : "#9A3412",
+                background: backendIsUp ? "rgba(34,197,94,0.12)" : "rgba(251,146,60,0.15)",
+                borderColor: backendIsUp ? "rgba(34,197,94,0.35)" : "rgba(251,146,60,0.35)",
+              }}
+            >
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ background: backendIsUp ? "#22C55E" : "#FB923C" }}
+                aria-hidden
+              />
+              {backendLabel}
+            </div>
+            <span className="inline-flex items-center rounded-full border border-brand-purple/35 bg-brand-purple/12 px-3 py-1 text-xs font-bold text-brand-purple">
+              {isElderlyMode ? "Simple Mode" : "Normal Mode"}
+            </span>
           </div>
         </div>
       )}
@@ -248,6 +257,7 @@ export function IntegratedWalletApp() {
       <AICommandCenter
         isOpen={isAIOpen}
         onClose={() => setIsAIOpen(false)}
+        currentScreen={!isElderlyMode ? currentScreen : undefined}
         activeUserId={activeUserId}
         userDisplayName={profile.fullName}
         onNavigate={(screen) => {

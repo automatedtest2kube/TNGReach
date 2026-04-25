@@ -45,6 +45,7 @@ interface ProfileScreenProps {
 export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScreenProps) {
   const {
     elderlyMode,
+    setElderlyMode,
     language,
     setLanguage,
     t,
@@ -76,6 +77,14 @@ export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScree
   const currentLanguage = languages.find((l) => l.code === language)?.name || "English";
 
   const menuItems = [
+    {
+      icon: Eye,
+      label: "Simple Mode",
+      value: "",
+      toggle: true,
+      checked: elderlyMode,
+      onChange: setElderlyMode,
+    },
     { icon: User, label: "Personal Information", value: "", action: () => {} },
     { icon: Users, label: t("familyModule"), value: "", action: () => onNavigate?.("family") },
     {
@@ -141,7 +150,7 @@ export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScree
           <ChevronLeft className="h-5 w-5" />
         </motion.button>
         <h1
-          className={`font-extrabold tracking-tight text-foreground ${elderlyMode ? "text-2xl" : "text-xl"}`}
+          className="font-extrabold tracking-tight text-foreground text-xl"
         >
           {t("profile")} & {t("settings")}
         </h1>
@@ -152,19 +161,19 @@ export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScree
         className="card-glass flex items-center gap-4 rounded-3xl p-4 py-6 shadow-soft ring-1 ring-white/35"
       >
         <div
-          className={`${elderlyMode ? "h-24 w-24" : "h-20 w-20"} card-sheen relative flex items-center justify-center overflow-hidden rounded-full text-2xl font-bold text-white shadow-glow ${elderlyMode ? "text-3xl" : ""}`}
+          className="h-20 w-20 card-sheen relative flex items-center justify-center overflow-hidden rounded-full text-2xl font-bold text-white shadow-glow"
           style={{ background: "linear-gradient(135deg, #5896FD 0%, #806EF8 100%)" }}
         >
           {getInitials(profile.fullName)}
         </div>
         <div className="min-w-0 flex-1">
           <h2
-            className={`font-bold tracking-tight text-foreground ${elderlyMode ? "text-2xl" : "text-xl"}`}
+            className="font-bold tracking-tight text-foreground text-xl"
           >
             {profile.fullName}
           </h2>
-          <p className={`text-foreground/50 ${elderlyMode ? "text-lg" : ""}`}>{profile.phone}</p>
-          <p className={`text-foreground/50 ${elderlyMode ? "text-base" : "text-sm"}`}>
+          <p className="text-foreground/50">{profile.phone}</p>
+          <p className="text-foreground/50 text-sm">
             {profile.email}
           </p>
         </div>
@@ -176,6 +185,7 @@ export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScree
 
       <motion.div variants={pageItem} className="py-2">
         {menuItems.map((item, index) => {
+          const isSimpleModeRow = index === 0;
           const IconComponent = item.icon;
           const Wrapper = item.toggle ? "div" : "button";
           return (
@@ -183,17 +193,23 @@ export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScree
               key={index}
               type={item.toggle ? undefined : "button"}
               onClick={item.toggle ? undefined : item.action}
-              className={`flex w-full items-center gap-4 border-b border-brand-purple/10 py-4 last:border-0 ${elderlyMode ? "py-5" : ""} ${!item.toggle ? "cursor-pointer active:bg-brand-purple/8" : ""} rounded-xl`}
+              className={`flex w-full items-center gap-4 py-4 rounded-xl ${
+                isSimpleModeRow
+                  ? "mb-2 rounded-2xl border border-brand-purple/30 bg-brand-purple/12 px-3 shadow-soft ring-1 ring-brand-purple/20"
+                  : "border-b border-brand-purple/10 last:border-0"
+              } ${!item.toggle ? "cursor-pointer active:bg-brand-purple/8" : ""}`}
             >
               <div
-                className={`${elderlyMode ? "h-12 w-12" : "h-10 w-10"} card-glass flex items-center justify-center rounded-xl text-brand-blue shadow-soft`}
+                className={`h-10 w-10 flex items-center justify-center rounded-xl text-brand-blue shadow-soft ${
+                  isSimpleModeRow ? "bg-brand-purple/20" : "card-glass"
+                }`}
               >
                 <IconComponent
-                  className={`${elderlyMode ? "h-6 w-6" : "h-5 w-5"} text-brand-purple`}
+                  className="h-5 w-5 text-brand-purple"
                 />
               </div>
               <span
-                className={`min-w-0 flex-1 text-left font-medium text-foreground ${elderlyMode ? "text-lg" : ""}`}
+                className="min-w-0 flex-1 text-left font-medium text-foreground"
               >
                 {item.label}
               </span>
@@ -202,7 +218,7 @@ export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScree
               ) : (
                 <>
                   {item.value && (
-                    <span className={`text-foreground/50 ${elderlyMode ? "text-base" : "text-sm"}`}>
+                    <span className="text-foreground/50 text-sm">
                       {item.value}
                     </span>
                   )}
@@ -217,22 +233,22 @@ export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScree
       <motion.button
         type="button"
         variants={pageItem}
-        className={`mt-2 flex items-center gap-4 rounded-2xl py-4 active:bg-destructive/6 ${elderlyMode ? "py-5" : ""}`}
+        className="mt-2 flex items-center gap-4 rounded-2xl py-4 active:bg-destructive/6"
         whileTap={{ scale: 0.99 }}
       >
         <div
-          className={`${elderlyMode ? "h-12 w-12" : "h-10 w-10"} flex items-center justify-center rounded-xl`}
+          className="h-10 w-10 flex items-center justify-center rounded-xl"
           style={{ background: "rgba(248, 81, 73, 0.12)" }}
         >
-          <LogOut className={`${elderlyMode ? "h-6 w-6" : "h-5 w-5"} text-destructive`} />
+          <LogOut className="h-5 w-5 text-destructive" />
         </div>
-        <span className={`font-medium text-destructive ${elderlyMode ? "text-lg" : ""}`}>
+        <span className="font-medium text-destructive">
           Log Out
         </span>
       </motion.button>
 
       <p
-        className={`mt-auto pt-8 text-center text-foreground/45 ${elderlyMode ? "text-base" : "text-sm"}`}
+        className="mt-auto pt-8 text-center text-foreground/45 text-sm"
       >
         TNG Reach v2.4.1
       </p>
@@ -250,7 +266,7 @@ export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScree
             transition={{ type: "spring", stiffness: 400, damping: 34 }}
           >
             <h3
-              className={`section-title mb-4 ${elderlyMode ? "text-2xl" : "text-lg"}`}
+              className="section-title mb-4 text-lg"
             >
               Select Language
             </h3>
@@ -267,12 +283,12 @@ export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScree
                     language === lang.code
                       ? "bg-gradient-to-r from-brand-blue/12 to-brand-purple/12"
                       : ""
-                  } ${elderlyMode ? "py-5" : "py-4"}`}
+                  } py-4`}
                 >
                   <span
                     className={`font-medium ${
                       language === lang.code ? "text-brand-blue" : "text-foreground"
-                    } ${elderlyMode ? "text-lg" : ""}`}
+                    }`}
                   >
                     {lang.name}
                   </span>
@@ -283,7 +299,7 @@ export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScree
             <button
               type="button"
               onClick={() => setShowLanguageModal(false)}
-              className={`mt-4 w-full rounded-full py-3 font-medium text-foreground/50 transition active:bg-brand-purple/8 ${elderlyMode ? "text-lg" : ""}`}
+              className="mt-4 w-full rounded-full py-3 font-medium text-foreground/50 transition active:bg-brand-purple/8"
             >
               Cancel
             </button>

@@ -566,14 +566,6 @@ export function ScanPayScreen({ onBack, scanMode = "payment" }: ScanPayScreenPro
           </motion.button>
         </div>
 
-        <motion.button
-          type="button"
-          onClick={() => setStep("detected")}
-          className={`mt-8 rounded-full border-2 border-brand-purple/35 bg-white/85 px-6 py-3 font-semibold text-brand-purple shadow-soft backdrop-blur-sm ${isElderlyMode ? "text-lg" : "text-sm"}`}
-          whileTap={{ scale: 0.98 }}
-        >
-          Simulate QR Scan
-        </motion.button>
         {scanMode === "family" && (
           <div className="mt-3 w-full max-w-xs rounded-2xl border border-brand-purple/20 bg-white/85 p-3 shadow-soft">
             <p className="mb-2 text-center text-xs font-semibold text-foreground/60">Have invite code?</p>
