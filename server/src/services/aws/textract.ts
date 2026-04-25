@@ -1,4 +1,5 @@
 import { DetectDocumentTextCommand, TextractClient, type Block } from "@aws-sdk/client-textract";
+import sharp from "sharp";
 import { HttpError } from "../../lib/http-error";
 import { getAwsClientConfig } from "./region";
 
@@ -10,7 +11,14 @@ function getClient() {
   return client;
 }
 
-const MAX_BYTES = 10 * 1024 * 1024; // Textract 10 MB limit for inline bytes
+const MAX_BYTES = 10 * 1024 * 1024;
+
+// ── Textract helpers ───────────────────────────────────────────────────────
+
+interface RawLine {
+  text: string;
+  confidence: number;
+}
 
 async function imageBytesFromRef(inputRef: string): Promise<Uint8Array> {
   if (inputRef.startsWith("data:") && inputRef.includes("base64,")) {
@@ -34,98 +42,294 @@ async function imageBytesFromRef(inputRef: string): Promise<Uint8Array> {
   );
 }
 
-/** Raw lines extracted from the document */
-async function extractLines(imageRef: string): Promise<string[]> {
-  const bytes = await imageBytesFromRef(imageRef);
+/** Call Textract and return raw lines with confidence, sorted top-to-bottom */
+async function callTextract(bytes: Uint8Array): Promise<RawLine[]> {
   const out = await getClient().send(new DetectDocumentTextCommand({ Document: { Bytes: bytes } }));
-  return (out.Blocks ?? [])
+  const lines = (out.Blocks ?? [])
     .filter((b: Block) => b.BlockType === "LINE" && b.Text)
-    .map((b: Block) => b.Text as string);
+    .sort((a: Block, b: Block) => {
+      const ay = a.Geometry?.BoundingBox?.Top ?? 0;
+      const by = b.Geometry?.BoundingBox?.Top ?? 0;
+      return ay - by;
+    })
+    .map((b: Block) => ({
+      text: (b.Text as string).trim(),
+      confidence: b.Confidence ?? 0,
+      top: b.Geometry?.BoundingBox?.Top ?? 0,
+      left: b.Geometry?.BoundingBox?.Left ?? 0,
+    }))
+    .filter((l) => l.text.length > 0);
+
+  // Debug: log every raw line Textract returns so we can verify parsing inputs
+  console.log("[textract] raw lines from OCR:");
+  lines.forEach((l, i) =>
+    console.log(
+      `  [${i}] top=${l.top.toFixed(3)} left=${l.left.toFixed(3)} conf=${l.confidence.toFixed(1)} | "${l.text}"`,
+    ),
+  );
+
+  return lines.map(({ text, confidence }) => ({ text, confidence }));
 }
+
+// ── Image pre-processing ───────────────────────────────────────────────────
+
+/**
+ * Enhance the full card image before sending to Textract:
+ * greyscale → normalise → sharpen → 1.5× upscale → lossless PNG.
+ * Removes the light-blue MyKad tint and boosts contrast on dark text.
+ */
+async function enhanceCard(inputBuf: Buffer): Promise<Buffer> {
+  const meta = await sharp(inputBuf).metadata();
+  const w = meta.width ?? 0;
+  const h = meta.height ?? 0;
+  return sharp(inputBuf)
+    .greyscale()
+    .normalise()
+    .sharpen({ sigma: 1.2 })
+    .resize(Math.round(w * 1.5), Math.round(h * 1.5), { kernel: "lanczos3" })
+    .png()
+    .toBuffer();
+}
+
+// ── MyKad parser adapter ───────────────────────────────────────────────────
+
+const BLACKLIST = [
+  "KAD PENGENALAN",
+  "MALAYSIA",
+  "MYKAD",
+  "WARGANEGARA",
+  "NATIONALITY",
+  "LELAKI",
+  "PEREMPUAN",
+  "ISLAM",
+  "BUDDHA",
+  "HINDU",
+  "KRISTIAN",
+  "LAIN-LAIN",
+  "TARIKH LAHIR",
+  "DATE OF BIRTH",
+  "JANTINA",
+  "GENDER",
+  "KHUNSA",
+];
+
+const STATE_WORDS = [
+  "JOHOR",
+  "KEDAH",
+  "KELANTAN",
+  "MELAKA",
+  "NEGERI SEMBILAN",
+  "PAHANG",
+  "PERAK",
+  "PERLIS",
+  "PULAU PINANG",
+  "PENANG",
+  "SABAH",
+  "SARAWAK",
+  "SELANGOR",
+  "TERENGGANU",
+  "KUALA LUMPUR",
+  "PUTRAJAYA",
+  "LABUAN",
+  "W.P.",
+];
+
+const STREET_KEYWORDS =
+  /\b(JALAN|JLN|LORONG|LRG|TAMAN|TMN|KAMPUNG|KG|BANDAR|PERSIARAN|NO|LOT|FELDA|BLOK|BLOCK|TINGKAT|FLAT|APARTMENT|APT|RESIDENSI|DESA|PANDAN|WANGSA|BUKIT|SRI|SERI)\b/;
+
+const IC_REGEX = /\b(\d{6}[-\s]?\d{2}[-\s]?\d{4})\b/;
 
 export interface IcExtractResult {
   icNumber: string | null;
   fullName: string | null;
   address: string | null;
+  confidence: {
+    icNumber: number;
+    fullName: number;
+    address: number;
+  };
+  needsReview: boolean;
   rawLines: string[];
 }
 
-/** Words that are never part of a name or address on a Malaysian MyKad */
-const NOISE =
-  /^(KAD\s*PENGENALAN|MALAYSIA|MYKAD|WARGANEGARA|NATIONALITY|TARIKH|DATE\s*LAHIR|JANTINA|GENDER|KHUNSA|H|L|P|LELAKI|PEREMPUAN|ISLAM|BUDDHA|HINDU|KRISTIAN|LAIN-LAIN)$/i;
-
-/** A postcode line: 5 digits optionally followed by a town/state name */
-const POSTCODE = /^\d{5}(\s+.+)?$/;
-
-/** IC number: YYMMDD-SS-NNNN with or without dashes */
-const IC_REGEX = /\b(\d{6}[-\s]?\d{2}[-\s]?\d{4})\b/;
-
 /**
- * Parse Malaysian MyKad fields from Textract lines.
+ * Content-based MyKad parser — does NOT rely on line order.
  *
- * MyKad line order (no section labels):
- *   KAD PENGENALAN / MALAYSIA / MyKad   ← noise
- *   <IC number>                          ← YYMMDD-SS-NNNN
- *   <name line 1>                        ← e.g. ROWAN SEBASTIAN
- *   <name line 2 if long name>           ← e.g. ATKINSON  (joined with space)
- *   <address line(s)>                    ← street / kampung
- *   <postcode + town>                    ← e.g. 80000 KENINGAU
- *   <state>                              ← e.g. SABAH
- *   WARGANEGARA / KHUNSA / H …          ← noise
+ * Strategy:
+ *  - IC number : first line matching YYMMDD-SS-NNNN pattern
+ *  - Full name : all-alpha lines (≥5 chars), not blacklisted, not IC, pick highest-confidence
+ *  - Address   : lines containing digits, state names, or street keywords, excluding IC line
  */
-export function parseMyKadLines(lines: string[]): IcExtractResult {
-  // Strip noise lines
-  const clean = lines.map((l) => l.trim()).filter((l) => l && !NOISE.test(l));
+export function parseMyKadLines(lines: RawLine[]): IcExtractResult {
+  const rawLineTexts = lines.map((l) => l.text);
+
+  // Filter out blacklisted lines
+  const clean = lines.filter((l) => {
+    const upper = l.text.toUpperCase();
+    return !BLACKLIST.some((word) => upper.includes(word));
+  });
 
   // ── IC Number ──────────────────────────────────────────────────────────────
   let icNumber: string | null = null;
-  let icIdx = -1;
-  for (let i = 0; i < clean.length; i++) {
-    const m = clean[i].match(IC_REGEX);
+  let icConfidence = 0;
+  let icLineText: string | null = null;
+
+  for (const line of lines) {
+    const m = line.text.match(IC_REGEX);
     if (m) {
       icNumber = m[1].replace(/[-\s]/g, "");
-      icIdx = i;
+      icConfidence = line.confidence / 100;
+      icLineText = line.text;
       break;
     }
   }
-
-  if (icIdx === -1) return { icNumber: null, fullName: null, address: null, rawLines: lines };
 
   // ── Full Name ──────────────────────────────────────────────────────────────
-  // Name lines come right after the IC number.
-  // A name line is all-caps letters/spaces/slashes, NOT a postcode, NOT noise.
-  const nameLines: string[] = [];
-  let cursor = icIdx + 1;
-  while (cursor < clean.length) {
-    const l = clean[cursor];
-    if (POSTCODE.test(l)) break; // hit address postcode
-    if (/\d/.test(l)) break; // contains digits → not a name
-    if (NOISE.test(l)) break;
-    if (/^[A-Z][A-Z\s'/.-]+$/.test(l) && l.length > 1) {
-      nameLines.push(l);
-      cursor++;
-    } else {
-      break;
+  // All-alpha/space/slash lines, min 5 chars, not the IC line, not blacklisted
+  const nameCandidates = clean.filter((l) => {
+    const upper = l.text.toUpperCase();
+    return (
+      /^[A-Z\s@'/.-]+$/.test(upper) &&
+      upper.length >= 5 &&
+      !IC_REGEX.test(upper) &&
+      !/\d/.test(upper)
+    );
+  });
+
+  // Pick the highest-confidence candidate; if multiple lines belong to the same
+  // name (e.g. "ROWAN SEBASTIAN" + "ATKINSON"), join them in document order.
+  // Heuristic: consecutive name candidates are joined; take the first group.
+  let fullName: string | null = null;
+  let nameConfidence = 0;
+
+  if (nameCandidates.length > 0) {
+    // Sort by original document order (top-to-bottom index in clean array)
+    const ordered = nameCandidates.slice().sort((a, b) => {
+      return lines.indexOf(a) - lines.indexOf(b);
+    });
+
+    // Collect consecutive name lines (no non-name line between them)
+    const nameGroup: RawLine[] = [ordered[0]];
+    for (let i = 1; i < ordered.length; i++) {
+      const prevIdx = lines.indexOf(ordered[i - 1]);
+      const currIdx = lines.indexOf(ordered[i]);
+      // Allow at most 1 intervening line (e.g. a blank or noise line)
+      if (currIdx - prevIdx <= 2) {
+        nameGroup.push(ordered[i]);
+      } else {
+        break;
+      }
     }
+
+    fullName = nameGroup
+      .map((l) => l.text.toUpperCase())
+      .join(" ")
+      .trim();
+    nameConfidence = nameGroup.reduce((sum, l) => sum + l.confidence, 0) / nameGroup.length / 100;
   }
-  const fullName = nameLines.length ? nameLines.join(" ") : null;
 
   // ── Address ────────────────────────────────────────────────────────────────
-  // Address lines come after the name, up to (and including) the state line,
-  // stopping before noise keywords.
-  const addrLines: string[] = [];
-  while (cursor < clean.length && addrLines.length < 5) {
-    const l = clean[cursor];
-    if (NOISE.test(l)) break;
-    addrLines.push(l);
-    cursor++;
-  }
-  const address = addrLines.length ? addrLines.join(", ") : null;
+  // Lines with digits, state words, or street keywords — excluding the IC line
+  const addrLines = clean.filter((l) => {
+    const upper = l.text.toUpperCase();
+    if (icLineText && l.text === icLineText) return false;
+    return (
+      /\d/.test(upper) || STATE_WORDS.some((s) => upper.includes(s)) || STREET_KEYWORDS.test(upper)
+    );
+  });
 
-  return { icNumber, fullName, address, rawLines: lines };
+  const address = addrLines.length ? addrLines.map((l) => l.text.toUpperCase()).join(", ") : null;
+  const addrConfidence = addrLines.length
+    ? addrLines.reduce((sum, l) => sum + l.confidence, 0) / addrLines.length / 100
+    : 0;
+
+  const needsReview = !fullName || !icNumber || !address;
+
+  console.log("[textract] parse result:", { icNumber, fullName, address, needsReview });
+
+  return {
+    icNumber,
+    fullName,
+    address,
+    confidence: {
+      icNumber: icConfidence,
+      fullName: nameConfidence,
+      address: addrConfidence,
+    },
+    needsReview,
+    rawLines: rawLineTexts,
+  };
 }
 
 export async function extractIcFields(imageRef: string): Promise<IcExtractResult> {
-  const lines = await extractLines(imageRef);
+  const isDataUrl = imageRef.startsWith("data:") && imageRef.includes("base64,");
+
+  let bytes: Uint8Array;
+
+  if (isDataUrl) {
+    // Enhance the card image before OCR — greyscale + normalise removes the
+    // light-blue tint and boosts dark text contrast significantly
+    try {
+      const b64 = imageRef.split("base64,")[1]!;
+      const inputBuf = Buffer.from(b64, "base64");
+      bytes = await enhanceCard(inputBuf);
+    } catch {
+      bytes = await imageBytesFromRef(imageRef);
+    }
+  } else {
+    bytes = await imageBytesFromRef(imageRef);
+  }
+
+  const lines = await callTextract(bytes);
   return parseMyKadLines(lines);
+}
+
+export interface DebugScanResult {
+  rawLines: Array<{ text: string; confidence: number; top: number; left: number }>;
+  parsed: IcExtractResult;
+  enhanced: boolean;
+}
+
+/**
+ * Debug helper — returns raw Textract lines with geometry AND the parsed result.
+ * Exposes exactly what OCR sees before and after parsing so mismatches are obvious.
+ */
+export async function debugScanRaw(imageRef: string): Promise<DebugScanResult> {
+  const isDataUrl = imageRef.startsWith("data:") && imageRef.includes("base64,");
+  let bytes: Uint8Array;
+  let enhanced = false;
+
+  if (isDataUrl) {
+    try {
+      const b64 = imageRef.split("base64,")[1]!;
+      const inputBuf = Buffer.from(b64, "base64");
+      bytes = await enhanceCard(inputBuf);
+      enhanced = true;
+    } catch {
+      bytes = await imageBytesFromRef(imageRef);
+    }
+  } else {
+    bytes = await imageBytesFromRef(imageRef);
+  }
+
+  // Call Textract directly and keep geometry for the debug response
+  const out = await getClient().send(new DetectDocumentTextCommand({ Document: { Bytes: bytes } }));
+  const rawLines = (out.Blocks ?? [])
+    .filter((b: Block) => b.BlockType === "LINE" && b.Text)
+    .sort((a: Block, b: Block) => {
+      const ay = a.Geometry?.BoundingBox?.Top ?? 0;
+      const by = b.Geometry?.BoundingBox?.Top ?? 0;
+      return ay - by;
+    })
+    .map((b: Block) => ({
+      text: (b.Text as string).trim(),
+      confidence: b.Confidence ?? 0,
+      top: b.Geometry?.BoundingBox?.Top ?? 0,
+      left: b.Geometry?.BoundingBox?.Left ?? 0,
+    }))
+    .filter((l) => l.text.length > 0);
+
+  const parsed = parseMyKadLines(rawLines.map(({ text, confidence }) => ({ text, confidence })));
+
+  return { rawLines, parsed, enhanced };
 }
