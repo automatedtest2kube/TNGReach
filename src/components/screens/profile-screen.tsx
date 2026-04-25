@@ -42,9 +42,10 @@ const pageItem = {
 interface ProfileScreenProps {
   onBack: () => void;
   onNavigate?: (screen: string) => void;
+  activeUserId?: number;
 }
 
-export function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps) {
+export function ProfileScreen({ onBack, onNavigate, activeUserId }: ProfileScreenProps) {
   const {
     elderlyMode,
     setElderlyMode,
@@ -62,17 +63,17 @@ export function ProfileScreen({ onBack, onNavigate }: ProfileScreenProps) {
 
   useEffect(() => {
     let alive = true;
-    fetchUserProfile()
+    fetchUserProfile(activeUserId)
       .then((data) => {
         if (alive) setProfile(data);
       })
       .catch(() => {
-        // Keep fallback values when mock/API is unavailable.
+        // Keep fallback values when API is unavailable.
       });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [activeUserId]);
 
   const languages = [
     { code: "en" as const, name: "English" },

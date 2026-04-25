@@ -34,6 +34,7 @@ import QRCode from "qrcode";
 interface FamilyScreenProps {
   onBack: () => void;
   onNavigate?: (screen: string) => void;
+  activeUserId?: number;
 }
 
 type Step = "dashboard" | "requests" | "monitoring" | "permissions";
@@ -54,7 +55,7 @@ const recentActivity = [
   { id: 3, member: "Aminah Rahman", action: "Set spending limit to RM 1000", time: "2 days ago" },
 ];
 
-export function FamilyScreen({ onBack, onNavigate }: FamilyScreenProps) {
+export function FamilyScreen({ onBack, onNavigate, activeUserId }: FamilyScreenProps) {
   const [step, setStep] = useState<Step>("dashboard");
   const [profile, setProfile] = useState(FALLBACK_USER_PROFILE);
   const [linkedMembers, setLinkedMembers] = useState<FamilyMember[]>([]);
@@ -73,17 +74,17 @@ export function FamilyScreen({ onBack, onNavigate }: FamilyScreenProps) {
 
   useEffect(() => {
     let alive = true;
-    fetchUserProfile()
+    fetchUserProfile(activeUserId)
       .then((data) => {
         if (alive) setProfile(data);
       })
       .catch(() => {
-        // Keep fallback values when mock/API is unavailable.
+        // Keep fallback values when API is unavailable.
       });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [activeUserId]);
 
   useEffect(() => {
     setLinkedMembers(getFamilyMembers());
