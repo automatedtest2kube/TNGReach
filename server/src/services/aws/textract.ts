@@ -141,6 +141,9 @@ const STATE_WORDS = [
 const STREET_KEYWORDS =
   /\b(JALAN|JLN|LORONG|LRG|TAMAN|TMN|KAMPUNG|KG|BANDAR|PERSIARAN|NO|LOT|FELDA|BLOK|BLOCK|TINGKAT|FLAT|APARTMENT|APT|RESIDENSI|DESA|PANDAN|WANGSA|BUKIT|SRI|SERI)\b/;
 
+const ADDRESS_LOCALITY_KEYWORDS =
+  /\b(PARIT|PEKAN|MUKIM|DAERAH|BATU|HILIR|HULU|KAWASAN|FASA|SEKSYEN|LALUAN|PUSAT|PPR|RUMAH|KAMPONG)\b/;
+
 const IC_REGEX = /\b(\d{6}[-\s]?\d{2}[-\s]?\d{4})\b/;
 
 export interface IcExtractResult {
@@ -172,8 +175,9 @@ export function parseMyKadLines(lines: RawLine[]): IcExtractResult {
 
   // Scrub watermark tokens from line text, then filter out blacklisted lines
   const clean = lines
-    .map((l) => ({
+    .map((l, idx) => ({
       ...l,
+      originalIndex: idx,
       text: l.text
         .replace(WATERMARK_TOKENS, "")
         .replace(/\s{2,}/g, " ")
@@ -204,6 +208,7 @@ export function parseMyKadLines(lines: RawLine[]): IcExtractResult {
   // A line that looks like part of an address even if it has no digits
   const isAddressLike = (upper: string) =>
     STREET_KEYWORDS.test(upper) ||
+    ADDRESS_LOCALITY_KEYWORDS.test(upper) ||
     STATE_WORDS.some((s) => upper.includes(s)) ||
     /^\d{5}(\s|$)/.test(upper); // postcode
 
@@ -214,11 +219,41 @@ export function parseMyKadLines(lines: RawLine[]): IcExtractResult {
   // Names must appear after the IC number line in document order
   const icLineIdx = icLineText ? lines.findIndex((l) => l.text === icLineText) : -1;
 
+  const postIc = clean.filter((l) => l.originalIndex > icLineIdx);
+  const isAddressAnchor = (upper: string) =>
+    /\d/.test(upper) || isAddressLike(upper) || /\bPOS\s*\d+\b/.test(upper);
+  const isAddressContinuation = (upper: string) =>
+    /^[A-Z\s@'/.-]+$/.test(upper) &&
+    upper.trim().length >= 4 &&
+    !LABEL_WORDS.test(upper) &&
+    !IC_REGEX.test(upper);
+
+  // Build address block from first strong address anchor after IC number.
+  const addressLines: Array<(typeof clean)[number]> = [];
+  let addressStarted = false;
+  for (const line of postIc) {
+    const upper = line.text.toUpperCase();
+    if (!addressStarted) {
+      if (isAddressAnchor(upper)) {
+        addressStarted = true;
+        addressLines.push(line);
+      }
+      continue;
+    }
+    const keep = isAddressAnchor(upper) || isAddressContinuation(upper);
+    if (keep) {
+      addressLines.push(line);
+      continue;
+    }
+    // Stop once the block has started and a non-address line appears.
+    break;
+  }
+  const firstAddressIdx = addressLines[0]?.originalIndex ?? Number.POSITIVE_INFINITY;
+
   // All-alpha lines, min 5 chars, not IC, not blacklisted, not address-like,
   // not a document label, and positioned after the IC number
   const nameCandidates = clean.filter((l) => {
     const upper = l.text.toUpperCase();
-    const lineIdx = lines.findIndex((r) => r.text === l.text);
     return (
       /^[A-Z\s@'/.-]+$/.test(upper) &&
       upper.trim().length >= 5 &&
@@ -226,7 +261,8 @@ export function parseMyKadLines(lines: RawLine[]): IcExtractResult {
       !/\d/.test(upper) &&
       !isAddressLike(upper) &&
       !LABEL_WORDS.test(upper) &&
-      lineIdx > icLineIdx // must come after IC number
+      l.originalIndex > icLineIdx &&
+      l.originalIndex < firstAddressIdx // keep name block before address block
     );
   });
 
@@ -235,14 +271,14 @@ export function parseMyKadLines(lines: RawLine[]): IcExtractResult {
 
   if (nameCandidates.length > 0) {
     // Sort by original document order
-    const ordered = nameCandidates.slice().sort((a, b) => lines.indexOf(a) - lines.indexOf(b));
+    const ordered = nameCandidates.slice().sort((a, b) => a.originalIndex - b.originalIndex);
 
     // Collect consecutive name lines; stop if a non-name line falls between them
     const nameGroup: RawLine[] = [ordered[0]];
     for (let i = 1; i < ordered.length; i++) {
-      const prevIdx = lines.indexOf(ordered[i - 1]);
-      const currIdx = lines.indexOf(ordered[i]);
-      if (currIdx - prevIdx <= 2) {
+      const prevIdx = ordered[i - 1].originalIndex;
+      const currIdx = ordered[i].originalIndex;
+      if (currIdx - prevIdx <= 1) {
         nameGroup.push(ordered[i]);
       } else {
         break;
@@ -257,18 +293,29 @@ export function parseMyKadLines(lines: RawLine[]): IcExtractResult {
   }
 
   // ── Address ────────────────────────────────────────────────────────────────
-  // Lines with digits, state words, or street keywords — excluding the IC line
-  const addrLines = clean.filter((l) => {
-    const upper = l.text.toUpperCase();
-    if (icLineText && l.text === icLineText) return false;
-    return (
-      /\d/.test(upper) || STATE_WORDS.some((s) => upper.includes(s)) || STREET_KEYWORDS.test(upper)
-    );
-  });
+  // Remove stray IC fragments from address lines.
+  const sanitizeAddressLine = (lineText: string): string => {
+    let out = lineText.toUpperCase();
+    out = out.replace(/\b\d{6}[-\s]?\d{2}[-\s]?\d{4}\b/g, " ");
+    out = out.replace(/\b\d{4}[-\s]?\d{2}[-\s]?\d{4}\b/g, " ");
+    if (icNumber) {
+      const ic = icNumber.replace(/\D/g, "");
+      const tail = ic.slice(2);
+      if (tail.length === 10) {
+        const tailPattern = tail.replace(/(\d{4})(\d{2})(\d{4})/, "$1[-\\s]?$2[-\\s]?$3");
+        out = out.replace(new RegExp(`\\b${tailPattern}\\b`, "g"), " ");
+      }
+    }
+    return out.replace(/\s{2,}/g, " ").replace(/\s+,/g, ",").trim().replace(/^,|,$/g, "");
+  };
 
-  const address = addrLines.length ? addrLines.map((l) => l.text.toUpperCase()).join(", ") : null;
-  const addrConfidence = addrLines.length
-    ? addrLines.reduce((sum, l) => sum + l.confidence, 0) / addrLines.length / 100
+  const addressParts = addressLines
+    .map((l) => sanitizeAddressLine(l.text))
+    .filter((part) => part.length > 0);
+  const dedupedAddressParts = Array.from(new Set(addressParts));
+  const address = dedupedAddressParts.length ? dedupedAddressParts.join(", ") : null;
+  const addrConfidence = addressLines.length
+    ? addressLines.reduce((sum, l) => sum + l.confidence, 0) / addressLines.length / 100
     : 0;
 
   const needsReview = !fullName || !icNumber || !address;
