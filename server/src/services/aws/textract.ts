@@ -50,56 +50,82 @@ export interface IcExtractResult {
   rawLines: string[];
 }
 
+/** Words that are never part of a name or address on a Malaysian MyKad */
+const NOISE =
+  /^(KAD\s*PENGENALAN|MALAYSIA|MYKAD|WARGANEGARA|NATIONALITY|TARIKH|DATE\s*LAHIR|JANTINA|GENDER|KHUNSA|H|L|P|LELAKI|PEREMPUAN|ISLAM|BUDDHA|HINDU|KRISTIAN|LAIN-LAIN)$/i;
+
+/** A postcode line: 5 digits optionally followed by a town/state name */
+const POSTCODE = /^\d{5}(\s+.+)?$/;
+
+/** IC number: YYMMDD-SS-NNNN with or without dashes */
+const IC_REGEX = /\b(\d{6}[-\s]?\d{2}[-\s]?\d{4})\b/;
+
 /**
- * Malaysian IC (MyKad) field extraction.
+ * Parse Malaysian MyKad fields from Textract lines.
  *
- * IC number format: YYMMDD-SS-NNNN  (12 digits, may appear with or without dashes)
- * Name appears on a line after "NAMA" or as the longest all-caps line.
- * Address lines follow "ALAMAT" or "ADDRESS".
+ * MyKad line order (no section labels):
+ *   KAD PENGENALAN / MALAYSIA / MyKad   ← noise
+ *   <IC number>                          ← YYMMDD-SS-NNNN
+ *   <name line 1>                        ← e.g. ROWAN SEBASTIAN
+ *   <name line 2 if long name>           ← e.g. ATKINSON  (joined with space)
+ *   <address line(s)>                    ← street / kampung
+ *   <postcode + town>                    ← e.g. 80000 KENINGAU
+ *   <state>                              ← e.g. SABAH
+ *   WARGANEGARA / KHUNSA / H …          ← noise
  */
-export async function extractIcFields(imageRef: string): Promise<IcExtractResult> {
-  const lines = await extractLines(imageRef);
+export function parseMyKadLines(lines: string[]): IcExtractResult {
+  // Strip noise lines
+  const clean = lines.map((l) => l.trim()).filter((l) => l && !NOISE.test(l));
 
   // ── IC Number ──────────────────────────────────────────────────────────────
-  const icRegex = /\b(\d{6}[-\s]?\d{2}[-\s]?\d{4})\b/;
   let icNumber: string | null = null;
-  for (const line of lines) {
-    const m = line.match(icRegex);
+  let icIdx = -1;
+  for (let i = 0; i < clean.length; i++) {
+    const m = clean[i].match(IC_REGEX);
     if (m) {
-      icNumber = m[1].replace(/[-\s]/g, ""); // normalise to 12 digits
+      icNumber = m[1].replace(/[-\s]/g, "");
+      icIdx = i;
       break;
     }
   }
 
+  if (icIdx === -1) return { icNumber: null, fullName: null, address: null, rawLines: lines };
+
   // ── Full Name ──────────────────────────────────────────────────────────────
-  // Strategy: line immediately after a line containing "NAMA" / "NAME"
-  let fullName: string | null = null;
-  const namaIdx = lines.findIndex((l) => /\bNAMA\b|\bNAME\b/i.test(l));
-  if (namaIdx !== -1 && lines[namaIdx + 1]) {
-    fullName = lines[namaIdx + 1].trim();
-  }
-  // Fallback: longest all-caps line (typical for printed IC names)
-  if (!fullName) {
-    const capsLines = lines.filter((l) => /^[A-Z\s/]+$/.test(l.trim()) && l.trim().length > 4);
-    if (capsLines.length) {
-      fullName = capsLines.reduce((a, b) => (a.length >= b.length ? a : b)).trim();
+  // Name lines come right after the IC number.
+  // A name line is all-caps letters/spaces/slashes, NOT a postcode, NOT noise.
+  const nameLines: string[] = [];
+  let cursor = icIdx + 1;
+  while (cursor < clean.length) {
+    const l = clean[cursor];
+    if (POSTCODE.test(l)) break; // hit address postcode
+    if (/\d/.test(l)) break; // contains digits → not a name
+    if (NOISE.test(l)) break;
+    if (/^[A-Z][A-Z\s'/.-]+$/.test(l) && l.length > 1) {
+      nameLines.push(l);
+      cursor++;
+    } else {
+      break;
     }
   }
+  const fullName = nameLines.length ? nameLines.join(" ") : null;
 
   // ── Address ────────────────────────────────────────────────────────────────
-  // Collect up to 4 lines after "ALAMAT" / "ADDRESS" / "ADDR"
-  let address: string | null = null;
-  const alamatIdx = lines.findIndex((l) => /\bALAMAT\b|\bADDRESS\b|\bADDR\b/i.test(l));
-  if (alamatIdx !== -1) {
-    const addrLines: string[] = [];
-    for (let i = alamatIdx + 1; i < lines.length && addrLines.length < 4; i++) {
-      const l = lines[i].trim();
-      // Stop at known section headers
-      if (/\b(TARIKH|DATE|JANTINA|GENDER|WARGANEGARA|NATIONALITY)\b/i.test(l)) break;
-      if (l) addrLines.push(l);
-    }
-    if (addrLines.length) address = addrLines.join(", ");
+  // Address lines come after the name, up to (and including) the state line,
+  // stopping before noise keywords.
+  const addrLines: string[] = [];
+  while (cursor < clean.length && addrLines.length < 5) {
+    const l = clean[cursor];
+    if (NOISE.test(l)) break;
+    addrLines.push(l);
+    cursor++;
   }
+  const address = addrLines.length ? addrLines.join(", ") : null;
 
   return { icNumber, fullName, address, rawLines: lines };
+}
+
+export async function extractIcFields(imageRef: string): Promise<IcExtractResult> {
+  const lines = await extractLines(imageRef);
+  return parseMyKadLines(lines);
 }
