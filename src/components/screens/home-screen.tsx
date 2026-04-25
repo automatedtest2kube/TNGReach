@@ -22,8 +22,9 @@ import {
   ShieldCheck,
   Mic,
   Users,
+  X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useAccessibility } from "@/context/accessibility-context";
 import { useWalletData } from "@/hooks/use-wallet-data";
@@ -46,9 +47,12 @@ const homeItem = {
     transition: { type: "spring" as const, stiffness: 400, damping: 30 },
   },
 };
+const SPENDING_ALERT_DISMISSED_KEY = "tngreach.spendingAlert.dismissed";
 
 export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
-  const [showBalance, setShowBalance] = useState(true);
+  const [showBalance, setShowBalance] = useState(false);
+  const [showSpendingAlertBanner, setShowSpendingAlertBanner] = useState(false);
+  const [spendingAlertDismissed, setSpendingAlertDismissed] = useState(false);
   const { isElderlyMode, t } = useAccessibility();
   const { summary } = useWalletData(activeUserId);
   const userName = summary?.user.fullName?.split(" ")[0] || "Sarah";
@@ -68,6 +72,30 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
         : `${walletCurrency} ••••••`,
     [showBalance, walletBalance, walletCurrency],
   );
+  const weeklyAmount = 123.5;
+  const isWeeklyNonNegative = weeklyAmount >= 0;
+  const weeklyPrefix = weeklyAmount > 0 ? "+" : weeklyAmount < 0 ? "-" : "";
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (window.sessionStorage.getItem(SPENDING_ALERT_DISMISSED_KEY) === "1") {
+      setSpendingAlertDismissed(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (spendingAlertDismissed) return;
+    const timer = window.setTimeout(() => setShowSpendingAlertBanner(true), 2200);
+    return () => window.clearTimeout(timer);
+  }, [spendingAlertDismissed]);
+
+  const dismissSpendingAlertBanner = () => {
+    setShowSpendingAlertBanner(false);
+    setSpendingAlertDismissed(true);
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(SPENDING_ALERT_DISMISSED_KEY, "1");
+    }
+  };
 
   // =============================================================
   // ELDERLY MODE: completely simplified layout
@@ -121,6 +149,37 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
 
     return (
       <div className="flex-1 overflow-auto pb-32">
+        {showSpendingAlertBanner && (
+          <div className="mx-5 mt-4 mb-3">
+            <button
+              type="button"
+              onClick={() => onNavigate("ai-insights")}
+              className="flex w-full items-center gap-3 rounded-2xl border border-brand-orange/45 bg-gradient-to-br from-brand-orange/28 to-destructive/14 px-4 py-3 text-left shadow-[0_10px_28px_rgba(210,150,50,0.2)] ring-1 ring-brand-orange/30"
+            >
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-orange to-destructive">
+                <Lightbulb className="h-5 w-5 text-white" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-foreground">Spending Alert</p>
+                <p className="text-xs text-foreground/80">You spent 15% more on food this week.</p>
+              </div>
+              <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-semibold text-destructive">
+                +15%
+              </span>
+              <span
+                role="button"
+                aria-label="Dismiss spending alert"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  dismissSpendingAlertBanner();
+                }}
+                className="rounded-full p-1 text-foreground/55 transition hover:bg-white/40"
+              >
+                <X className="h-4 w-4" />
+              </span>
+            </button>
+          </div>
+        )}
         {/* Verified banner - provides trust */}
         <div
           className="mx-5 mt-4 flex items-center gap-3 px-4 py-3 rounded-2xl"
@@ -389,18 +448,41 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
       animate="show"
       variants={homeStagger}
     >
-      {/* Greeting — soft ambient orbs (no pointer events) */}
-      <motion.div variants={homeItem} className="relative overflow-hidden pt-6 pb-4">
-        <div
-          className="ambient-orb pointer-events-none absolute -right-6 -top-2 h-24 w-24 rounded-full bg-brand-purple/20 blur-2xl"
-          aria-hidden
-        />
-        <div
-          className="ambient-orb pointer-events-none absolute -left-8 top-8 h-20 w-20 rounded-full bg-brand-orange/15 blur-2xl [animation-delay:-2s]"
-          aria-hidden
-        />
-        <p className="relative text-base text-foreground/55">{t("welcome")},</p>
-        <h1 className="relative text-3xl font-extrabold tracking-tight text-foreground">
+      {showSpendingAlertBanner && (
+        <motion.div variants={homeItem} className="pt-4">
+          <button
+            type="button"
+            onClick={() => onNavigate("ai-insights")}
+            className="flex w-full items-center gap-3 rounded-2xl border border-brand-orange/45 bg-gradient-to-br from-brand-orange/28 to-destructive/14 px-4 py-3 text-left shadow-[0_10px_28px_rgba(210,150,50,0.2)] ring-1 ring-brand-orange/30"
+          >
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-orange to-destructive">
+              <Lightbulb className="h-5 w-5 text-white" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-foreground">Spending Alert</p>
+              <p className="text-xs text-foreground/80">You spent 15% more on food this week.</p>
+            </div>
+            <span className="rounded-full bg-destructive/15 px-2 py-0.5 text-xs font-semibold text-destructive">
+              +15%
+            </span>
+            <span
+              role="button"
+              aria-label="Dismiss spending alert"
+              onClick={(event) => {
+                event.stopPropagation();
+                dismissSpendingAlertBanner();
+              }}
+              className="rounded-full p-1 text-foreground/55 transition hover:bg-white/40"
+            >
+              <X className="h-4 w-4" />
+            </span>
+          </button>
+        </motion.div>
+      )}
+      {/* Greeting */}
+      <motion.div variants={homeItem} className="pt-6 pb-4">
+        <p className="text-base text-foreground/55">{t("welcome")},</p>
+        <h1 className="text-3xl font-extrabold tracking-tight text-foreground">
           {userName}
         </h1>
       </motion.div>
@@ -432,7 +514,11 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
           <div className="animate-bob rounded-full bg-white/25 p-1.5">
             <Zap className="h-4 w-4 text-white" />
           </div>
-          <span className="text-sm font-medium text-white/90">+RM 123.50 this week</span>
+          <span
+            className={`text-sm font-semibold ${isWeeklyNonNegative ? "text-[#86EFAC]" : "text-[#FCA5A5]"}`}
+          >
+            {weeklyPrefix}RM {Math.abs(weeklyAmount).toFixed(2)} this week
+          </span>
         </div>
       </motion.div>
 
@@ -464,36 +550,6 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
             </motion.button>
           ))}
         </div>
-      </motion.div>
-
-      {/* AI Suggestion Card */}
-      <motion.div variants={homeItem} className="py-4">
-        <motion.button
-          type="button"
-          onClick={() => onNavigate("ai-insights")}
-          className="flex w-full items-center gap-4 rounded-2xl border border-brand-orange/30 bg-gradient-to-br from-brand-orange/15 to-destructive/5 p-5 shadow-[0_12px_40px_rgba(210,150,50,0.12)] ring-1 ring-brand-orange/20"
-          whileTap={{ scale: 0.985 }}
-        >
-          <div
-            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl"
-            style={{
-              background: "linear-gradient(135deg, #D29922 0%, #F85149 100%)",
-              boxShadow: "0 4px 20px rgba(210, 153, 34, 0.45)",
-            }}
-          >
-            <Lightbulb className="h-7 w-7 text-white" />
-          </div>
-          <div className="min-w-0 flex-1 text-left">
-            <p className="font-semibold text-foreground">Spending Alert</p>
-            <p className="text-sm text-brand-orange/90">
-              You spent 15% more on food this week. Tap to see insights.
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-1 rounded-full bg-destructive/15 px-3 py-1.5">
-            <TrendingUp className="h-4 w-4 text-destructive" />
-            <span className="text-sm font-semibold text-destructive">+15%</span>
-          </div>
-        </motion.button>
       </motion.div>
 
       {/* Monthly Comparison Mini Chart */}
@@ -615,7 +671,7 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
         </div>
       </motion.div>
 
-      {/* Elderly Mode Hint */}
+      {/* Simple Mode Hint */}
       <motion.div variants={homeItem} className="py-4">
         <motion.button
           type="button"
@@ -628,7 +684,7 @@ export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
               <HelpCircle className="h-5 w-5 text-brand-purple" />
             </div>
             <span className="text-left text-sm text-foreground/80">
-              Need simpler UI? Try Elderly Mode in Settings
+              Need simpler UI? Try Simple Mode in Settings
             </span>
           </div>
           <ChevronRight className="h-5 w-5 shrink-0 text-brand-purple" />
