@@ -23,13 +23,14 @@ import {
   Mic,
   Users,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useAccessibility } from "@/context/accessibility-context";
 import { useWalletData } from "@/hooks/use-wallet-data";
 
 interface HomeScreenProps {
   onNavigate: (screen: string) => void;
+  activeUserId?: number;
 }
 
 const homeStagger = {
@@ -46,10 +47,10 @@ const homeItem = {
   },
 };
 
-export function HomeScreen({ onNavigate }: HomeScreenProps) {
+export function HomeScreen({ onNavigate, activeUserId }: HomeScreenProps) {
   const [showBalance, setShowBalance] = useState(true);
   const { isElderlyMode, t } = useAccessibility();
-  const { summary } = useWalletData();
+  const { summary } = useWalletData(activeUserId);
   const userName = summary?.user.fullName?.split(" ")[0] || "Sarah";
   const walletCurrency = summary?.wallet?.currency || "MYR";
   const walletBalance = Number(summary?.wallet?.balance ?? 2458.5);
@@ -59,6 +60,14 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
     time: new Date(tx.transactionDate).toLocaleDateString(),
     amount: Number(tx.amount),
   }));
+
+  const balanceText = useMemo(
+    () =>
+      showBalance
+        ? `${walletCurrency} ${walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+        : `${walletCurrency} ••••••`,
+    [showBalance, walletBalance, walletCurrency],
+  );
 
   // =============================================================
   // ELDERLY MODE: completely simplified layout
@@ -157,9 +166,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
               </button>
             </div>
             <p className="text-5xl font-bold text-white tracking-tight">
-              {showBalance
-                ? `${walletCurrency} ${walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                : `${walletCurrency} ••••••`}
+              {balanceText}
             </p>
           </div>
         </div>
@@ -419,9 +426,7 @@ export function HomeScreen({ onNavigate }: HomeScreenProps) {
           </button>
         </div>
         <p className="relative z-10 text-4xl font-bold tracking-tight text-white drop-shadow-sm">
-          {showBalance
-            ? `${walletCurrency} ${walletBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-            : `${walletCurrency} ••••••`}
+          {balanceText}
         </p>
         <div className="relative z-10 mt-4 flex items-center gap-2 border-t border-white/25 pt-4">
           <div className="animate-bob rounded-full bg-white/25 p-1.5">

@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import logo from "@/assets/tng-reach-logo.png";
+import { Mascot } from "@/components/Mascot";
 
 const EASE_OUT = [0.22, 1, 0.36, 1] as const;
 const EASE_IN_OUT = [0.65, 0, 0.35, 1] as const;
@@ -62,12 +62,9 @@ export function SplashScreen() {
                 transition={{ duration: 2.4, ease: EASE_OUT, repeat: Number.POSITIVE_INFINITY }}
                 className="absolute inset-0 -z-10 rounded-[26%] bg-[radial-gradient(closest-side,oklch(0.62_0.18_265/0.55),transparent_75%)] blur-xl"
               />
-              <img
-                src={logo}
-                alt="TNG Reach logo"
-                className="h-full w-full select-none object-contain"
-                draggable={false}
-              />
+              <div className="flex h-full w-full items-center justify-center">
+                <Mascot pose="happy" mood="celebrate" size={132} followPointer={false} />
+              </div>
               <motion.div
                 aria-hidden
                 initial={{ x: "-120%", opacity: 0 }}
@@ -103,7 +100,7 @@ export function SplashScreen() {
           transition={{ duration: 0.9, delay: 2.1, ease: EASE_OUT }}
           className="text-center text-sm font-medium tracking-wide text-foreground/70 md:text-base"
         >
-          Payment management made simple
+          Simple. Unified. For Everyone
         </motion.p>
       </motion.div>
     </div>

@@ -12,44 +12,31 @@ import {
   Settings,
   Eye,
   Clock,
+  QrCode,
+  MessageCircle,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { useAccessibility } from "@/context/accessibility-context";
+import { FALLBACK_USER_PROFILE, fetchUserProfile } from "@/lib/user-profile";
+import {
+  createFamilyInviteQrValue,
+  createFamilyInvitePayload,
+  getFamilyMembers,
+  parseFamilyInvitePayload,
+  registerFamilyInvite,
+  setLatestFamilyInvitePayload,
+  type FamilyMember,
+} from "@/lib/family-link";
+import QRCode from "qrcode";
 
 interface FamilyScreenProps {
   onBack: () => void;
+  onNavigate?: (screen: string) => void;
 }
 
 type Step = "dashboard" | "requests" | "monitoring" | "permissions";
-
-const linkedMembers = [
-  {
-    id: 1,
-    name: "Aminah Rahman",
-    relation: "Mother",
-    avatar: "AR",
-    status: "active",
-    color: "bg-primary",
-  },
-  {
-    id: 2,
-    name: "Hassan Rahman",
-    relation: "Father",
-    avatar: "HR",
-    status: "active",
-    color: "bg-accent",
-  },
-  {
-    id: 3,
-    name: "Siti Rahman",
-    relation: "Sister",
-    avatar: "SR",
-    status: "pending",
-    color: "bg-secondary",
-  },
-];
 
 const pendingRequests = [
   {
@@ -67,9 +54,69 @@ const recentActivity = [
   { id: 3, member: "Aminah Rahman", action: "Set spending limit to RM 1000", time: "2 days ago" },
 ];
 
-export function FamilyScreen({ onBack }: FamilyScreenProps) {
+export function FamilyScreen({ onBack, onNavigate }: FamilyScreenProps) {
   const [step, setStep] = useState<Step>("dashboard");
+  const [profile, setProfile] = useState(FALLBACK_USER_PROFILE);
+  const [linkedMembers, setLinkedMembers] = useState<FamilyMember[]>([]);
+  const [showLinkQrModal, setShowLinkQrModal] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  const [inviteCode, setInviteCode] = useState("");
   const { elderlyMode, t } = useAccessibility();
+  const linkPayload = useMemo(
+    () => createFamilyInvitePayload(profile.fullName, profile.phone),
+    [profile.fullName, profile.phone],
+  );
+
+  useEffect(() => {
+    setLatestFamilyInvitePayload(linkPayload);
+  }, [linkPayload]);
+
+  useEffect(() => {
+    let alive = true;
+    fetchUserProfile()
+      .then((data) => {
+        if (alive) setProfile(data);
+      })
+      .catch(() => {
+        // Keep fallback values when mock/API is unavailable.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setLinkedMembers(getFamilyMembers());
+  }, []);
+
+  useEffect(() => {
+    if (!showLinkQrModal) return;
+    const parsed = parseFamilyInvitePayload(linkPayload);
+    const code = parsed?.inviteCode ?? "";
+    setInviteCode(code);
+    QRCode.toDataURL(createFamilyInviteQrValue(code), {
+      margin: 1,
+      width: 300,
+      color: { dark: "#2D225A", light: "#ffffff" },
+    })
+      .then(setQrDataUrl)
+      .catch(() => setQrDataUrl(null));
+  }, [linkPayload, showLinkQrModal]);
+
+  useEffect(() => {
+    const parsed = parseFamilyInvitePayload(linkPayload);
+    if (!parsed?.inviteCode) return;
+    // Seed invite registry for current mock flow.
+    registerFamilyInvite(parsed.inviteCode, linkPayload);
+  }, [linkPayload]);
+
+  const handleShareToWhatsApp = () => {
+    const message =
+      `TNG Reach family link invite from ${profile.fullName}\n\n` +
+      `Invite code: ${inviteCode}\n\n` +
+      `Open TNG Reach > Scan & Pay > Scan Family QR > Enter Invite Code.`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank");
+  };
 
   // Permissions Screen
   if (step === "permissions") {
@@ -253,7 +300,7 @@ export function FamilyScreen({ onBack }: FamilyScreenProps) {
 
       <div className="flex-1 overflow-auto px-5 pb-28">
         {/* Quick Actions */}
-        <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className="grid grid-cols-3 gap-3 mb-6">
           <button
             onClick={() => setStep("requests")}
             className="p-4 bg-card rounded-2xl text-left hover:shadow-md transition-shadow relative"
@@ -279,6 +326,15 @@ export function FamilyScreen({ onBack }: FamilyScreenProps) {
               Permissions
             </p>
           </button>
+          <button
+            onClick={() => onNavigate?.("family-scan")}
+            className="p-4 bg-card rounded-2xl text-left hover:shadow-md transition-shadow"
+          >
+            <QrCode className="w-6 h-6 text-brand-blue mb-2" />
+            <p className={`font-medium text-foreground ${elderlyMode ? "text-lg" : ""}`}>
+              Family Scan
+            </p>
+          </button>
         </div>
 
         {/* Linked Members */}
@@ -287,7 +343,10 @@ export function FamilyScreen({ onBack }: FamilyScreenProps) {
             <h2 className={`font-semibold text-foreground ${elderlyMode ? "text-xl" : "text-lg"}`}>
               Linked Members
             </h2>
-            <button className="flex items-center gap-1 text-primary">
+            <button
+              onClick={() => setShowLinkQrModal(true)}
+              className="flex items-center gap-1 text-primary"
+            >
               <Plus className="w-4 h-4" />
               <span className={`font-medium ${elderlyMode ? "text-base" : "text-sm"}`}>Add</span>
             </button>
@@ -297,9 +356,13 @@ export function FamilyScreen({ onBack }: FamilyScreenProps) {
             {linkedMembers.map((member) => (
               <div key={member.id} className="flex items-center gap-4 p-4 bg-card rounded-2xl">
                 <div
-                  className={`${elderlyMode ? "w-14 h-14" : "w-12 h-12"} rounded-full ${member.color} flex items-center justify-center text-primary-foreground font-bold`}
+                  className={`${elderlyMode ? "w-14 h-14" : "w-12 h-12"} rounded-full bg-primary flex items-center justify-center text-primary-foreground font-bold`}
                 >
-                  {member.avatar}
+                  {member.name
+                    .split(" ")
+                    .slice(0, 2)
+                    .map((part) => part[0]?.toUpperCase() ?? "")
+                    .join("")}
                 </div>
                 <div className="flex-1">
                   <p className={`font-medium text-foreground ${elderlyMode ? "text-lg" : ""}`}>
@@ -358,6 +421,57 @@ export function FamilyScreen({ onBack }: FamilyScreenProps) {
           </div>
         </div>
       </div>
+
+      {showLinkQrModal && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 backdrop-blur-sm sm:items-center">
+          <div className="w-full max-w-md rounded-t-3xl bg-white p-5 shadow-2xl sm:rounded-3xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold text-foreground">Link Family Member</h3>
+              <button
+                type="button"
+                onClick={() => setShowLinkQrModal(false)}
+                className="rounded-full p-2 text-foreground/55 hover:bg-muted"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mb-3 text-sm text-foreground/60">
+              Ask your family member to scan this QR in TNG Reach scanner to link account access.
+            </p>
+            <div className="mb-3 rounded-xl border border-brand-purple/25 bg-brand-purple/5 px-3 py-2 text-center">
+              <p className="text-xs text-foreground/60">Invite Code</p>
+              <p className="text-base font-extrabold tracking-[0.12em] text-brand-purple">{inviteCode}</p>
+            </div>
+            <div className="flex justify-center rounded-2xl border border-brand-purple/20 bg-muted/30 p-4">
+              {qrDataUrl ? (
+                <img src={qrDataUrl} alt="Family link QR code" className="h-56 w-56 rounded-xl bg-white p-2" />
+              ) : (
+                <div className="flex h-56 w-56 items-center justify-center text-foreground/50">
+                  <QrCode className="h-8 w-8 animate-pulse" />
+                </div>
+              )}
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={handleShareToWhatsApp}
+                className="flex items-center justify-center gap-2 rounded-xl bg-[#25D366] px-4 py-3 text-sm font-semibold text-white"
+              >
+                <MessageCircle className="h-4 w-4" />
+                WhatsApp
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowLinkQrModal(false)}
+                className="rounded-xl border border-brand-purple/30 bg-white px-4 py-3 text-sm font-semibold text-brand-purple"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
