@@ -11,6 +11,8 @@ interface AICommandCenterProps {
   onClose: () => void;
   onNavigate?: (screen: string) => void;
   activeUserId?: number;
+  /** Logged-in user's display name (e.g. full name from API) */
+  userDisplayName?: string;
 }
 
 interface Message {
@@ -20,7 +22,19 @@ interface Message {
   timestamp: Date;
 }
 
-export function AICommandCenter({ isOpen, onClose, onNavigate, activeUserId }: AICommandCenterProps) {
+function welcomeMessageText(userDisplayName: string | undefined): string {
+  const raw = userDisplayName?.trim() || "";
+  const first = raw.split(/\s+/).filter(Boolean)[0] || "there";
+  return `Hi ${first}! How can I help you today?`;
+}
+
+export function AICommandCenter({
+  isOpen,
+  onClose,
+  onNavigate,
+  activeUserId,
+  userDisplayName,
+}: AICommandCenterProps) {
   const [input, setInput] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [panelHeight, setPanelHeight] = useState(70);
@@ -31,7 +45,7 @@ export function AICommandCenter({ isOpen, onClose, onNavigate, activeUserId }: A
     {
       id: "welcome",
       type: "ai",
-      text: "Hi Sarah! How can I help you today?",
+      text: welcomeMessageText(undefined),
       timestamp: new Date(),
     },
   ]);
@@ -47,7 +61,7 @@ export function AICommandCenter({ isOpen, onClose, onNavigate, activeUserId }: A
   const suppressCloseUntilRef = useRef(0);
 
   const quickActions = [
-    { label: "Send RM50 to Sarah", action: "send" },
+    { label: "Send RM50 to a contact", action: "send" },
     { label: "Top up RM100", action: "topup" },
     { label: "Pay electricity bill", action: "bills" },
     { label: "Scan QR code", action: "scan" },
@@ -69,6 +83,14 @@ export function AICommandCenter({ isOpen, onClose, onNavigate, activeUserId }: A
       suppressCloseUntilRef.current = Date.now() + 500;
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === "welcome" ? { ...m, text: welcomeMessageText(userDisplayName) } : m,
+      ),
+    );
+  }, [userDisplayName]);
 
   const tryClose = useCallback(() => {
     if (Date.now() < suppressCloseUntilRef.current) return;
@@ -344,7 +366,7 @@ export function AICommandCenter({ isOpen, onClose, onNavigate, activeUserId }: A
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                placeholder="e.g. Send RM50 to Sarah"
+                placeholder="e.g. Send RM50 to a friend"
                 className={`flex-1 bg-transparent px-4 py-2.5 text-foreground placeholder:text-foreground/45 focus:outline-none ${
                   isElderlyMode ? "text-lg" : "text-base"
                 }`}
