@@ -15,6 +15,7 @@ import {
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { useAccessibility } from "@/context/accessibility-context";
+import { useWalletData } from "@/hooks/use-wallet-data";
 
 const pageStagger = {
   hidden: { opacity: 0 },
@@ -141,8 +142,31 @@ const filters = ["All", "Income", "Expense", "Transfer", "Bills"];
 export function HistoryScreen({ onBack }: HistoryScreenProps) {
   const [activeFilter, setActiveFilter] = useState("All");
   const { elderlyMode, t } = useAccessibility();
+  const { summary } = useWalletData();
 
-  const filteredTransactions = transactions.filter((tx) => {
+  const backendTransactions =
+    summary?.transactions.map((tx) => {
+      const amount = Number(tx.amount);
+      const kind = tx.transactionType;
+      const icon = kind === "RECEIVE" ? Plus : kind === "BILL_PAYMENT" ? Zap : Send;
+      const category =
+        kind === "RECEIVE" ? "Top Up" : kind === "BILL_PAYMENT" ? "Bills" : "Transfer";
+      const dateObj = new Date(tx.transactionDate);
+      return {
+        id: tx.transactionId,
+        icon,
+        name: tx.description || kind,
+        category,
+        date: dateObj.toLocaleDateString(),
+        time: dateObj.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        amount: kind === "RECEIVE" ? Math.abs(amount) : -Math.abs(amount),
+        status: tx.transactionStatus.toLowerCase(),
+        color: kind === "RECEIVE" ? "#3FB950" : kind === "BILL_PAYMENT" ? "#D29922" : "#806EF8",
+      };
+    }) ?? [];
+  const sourceTransactions = backendTransactions.length > 0 ? backendTransactions : transactions;
+
+  const filteredTransactions = sourceTransactions.filter((tx) => {
     if (activeFilter === "All") return true;
     if (activeFilter === "Income") return tx.amount > 0;
     if (activeFilter === "Expense")
@@ -158,7 +182,7 @@ export function HistoryScreen({ onBack }: HistoryScreenProps) {
       groups[tx.date].push(tx);
       return groups;
     },
-    {} as Record<string, typeof transactions>,
+    {} as Record<string, typeof sourceTransactions>,
   );
 
   return (
@@ -254,7 +278,12 @@ export function HistoryScreen({ onBack }: HistoryScreenProps) {
                     whileTap={{ scale: 0.996 }}
                     initial={{ opacity: 0, x: -6 }}
                     animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: 0.02 * index, type: "spring", stiffness: 400, damping: 32 }}
+                    transition={{
+                      delay: 0.02 * index,
+                      type: "spring",
+                      stiffness: 400,
+                      damping: 32,
+                    }}
                   >
                     <div
                       className={`${elderlyMode ? "h-14 w-14" : "h-12 w-12"} flex shrink-0 items-center justify-center rounded-xl shadow-soft`}

@@ -8,6 +8,13 @@
       "when": 1777103584760,
       "tag": "0000_woozy_harpoon",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "5",
+      "when": 1777111740558,
+      "tag": "0001_tense_anthem",
+      "breakpoints": true
     }
   ]
 }

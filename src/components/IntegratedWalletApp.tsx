@@ -20,6 +20,7 @@ import { CrowdfundingHubScreen } from "@/components/screens/crowdfunding-hub-scr
 import { Bell, Settings } from "lucide-react";
 import { Mascot } from "@/components/Mascot";
 import { useAccessibility } from "@/context/accessibility-context";
+import { useBackendHealth } from "@/hooks/use-backend-health";
 
 type Phase = "splash" | "registration" | "main";
 
@@ -29,6 +30,7 @@ export function IntegratedWalletApp() {
   const [isAIOpen, setIsAIOpen] = useState(false);
   const [headerVisible, setHeaderVisible] = useState(true);
   const { isElderlyMode, chatBubbleEnabled } = useAccessibility();
+  const { loading: backendLoading, data: backendHealth, error: backendError } = useBackendHealth();
 
   useEffect(() => {
     const timer = setTimeout(() => setPhase("registration"), 3200);
@@ -57,6 +59,14 @@ export function IntegratedWalletApp() {
   const showBottomNav = ["home", "history", "ai-insights", "profile"].includes(currentScreen);
   const showHeader = currentScreen === "home";
   const showChatBubble = chatBubbleEnabled && !isAIOpen && (!showHeader || !headerVisible);
+  const backendIsUp = Boolean(backendHealth?.ok && backendHealth?.db === "ok");
+  const backendLabel = backendIsUp
+    ? "Backend live"
+    : backendLoading
+      ? "Checking backend..."
+      : backendError
+        ? "Backend offline"
+        : "Backend not ready";
 
   return (
     <div className="wallet-theme relative isolate mx-auto flex min-h-screen max-w-lg flex-col overflow-hidden bg-[linear-gradient(100deg,oklch(0.985_0.012_280)_0%,oklch(0.95_0.04_280)_50%,oklch(0.96_0.045_300)_100%)]">
@@ -127,6 +137,25 @@ export function IntegratedWalletApp() {
           </div>
         </header>
       )}
+      {showHeader && (
+        <div className="px-5 pb-2">
+          <div
+            className="inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold"
+            style={{
+              color: backendIsUp ? "#166534" : "#9A3412",
+              background: backendIsUp ? "rgba(34,197,94,0.12)" : "rgba(251,146,60,0.15)",
+              borderColor: backendIsUp ? "rgba(34,197,94,0.35)" : "rgba(251,146,60,0.35)",
+            }}
+          >
+            <span
+              className="h-2 w-2 rounded-full"
+              style={{ background: backendIsUp ? "#22C55E" : "#FB923C" }}
+              aria-hidden
+            />
+            {backendLabel}
+          </div>
+        </div>
+      )}
       {currentScreen === "home" && <HomeScreen onNavigate={handleNavigate} />}
       {currentScreen === "send" && <SendMoneyScreen onBack={handleBack} />}
       {currentScreen === "scan" && (
@@ -145,9 +174,7 @@ export function IntegratedWalletApp() {
         <AIVoiceScreen onBack={handleBack} onNavigate={handleNavigate} />
       )}
       {currentScreen === "reminders" && <RemindersScreen onBack={handleBack} />}
-      {currentScreen === "community-support" && (
-        <CrowdfundingHubScreen onBack={handleBack} />
-      )}
+      {currentScreen === "community-support" && <CrowdfundingHubScreen onBack={handleBack} />}
       {currentScreen === "trust-score" && <TrustScoreScreen onBack={handleBack} />}
       {currentScreen === "family" && <FamilyScreen onBack={handleBack} />}
       {showBottomNav && (
