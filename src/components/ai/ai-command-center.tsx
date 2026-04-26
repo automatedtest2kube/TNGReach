@@ -5,6 +5,9 @@ import {
   ArrowUpRight,
   BellRing,
   Check,
+  Clock3,
+  Download,
+  MapPin,
   ScanFace,
   X,
   Mic,
@@ -35,13 +38,28 @@ type SendMoneyCard = {
   refNo?: string;
 };
 
+type ParkingCard = {
+  kind: "parking";
+  phase: "detecting" | "details" | "face_verifying" | "receipt";
+  location: string;
+  durationLabel: string;
+  fee: number;
+  refNo?: string;
+};
+
+type SpendingReportCard = {
+  kind: "spending_report";
+  monthLabel: string;
+  total: number;
+};
+
 interface Message {
   id: string;
   type: "user" | "ai";
   text: string;
   timestamp: Date;
   pending?: boolean;
-  card?: SendMoneyCard;
+  card?: SendMoneyCard | ParkingCard | SpendingReportCard;
 }
 
 type BrowserSpeechRecognition = {
@@ -158,6 +176,22 @@ function isSendMoneyKeywordIntent(raw: string): boolean {
   return normalized === "pay" || normalized === "send" || normalized === "transfer";
 }
 
+function isParkingIntent(raw: string): boolean {
+  const normalized = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  return (
+    normalized.includes("pay parking") ||
+    normalized.includes("parking payment") ||
+    normalized.includes("parking fee") ||
+    normalized === "parking" ||
+    normalized === "pay for parking"
+  );
+}
+
+function isSpendingReportIntent(raw: string): boolean {
+  const normalized = raw.trim().toLowerCase().replace(/\s+/g, " ");
+  return normalized.includes("spending report");
+}
+
 function messageContentForApi(m: Message): string {
   if (m.type === "ai" && m.card?.kind === "send_money") {
     const { recipient, amount, phase, refNo } = m.card;
@@ -169,12 +203,32 @@ function messageContentForApi(m: Message): string {
     }
     return `[Send money: RM ${amount.toFixed(2)} to ${recipient}, awaiting approval]`;
   }
+  if (m.type === "ai" && m.card?.kind === "parking") {
+    if (m.card.phase === "detecting") {
+      return "[Parking: detecting location and getting parking details]";
+    }
+    if (m.card.phase === "face_verifying") {
+      return `[Parking payment: face verification in progress for ${m.card.location}, RM ${m.card.fee.toFixed(2)}]`;
+    }
+    if (m.card.phase === "receipt" && m.card.refNo) {
+      return `[Parking paid: ${m.card.location}, ${m.card.durationLabel}, RM ${m.card.fee.toFixed(2)}, ref ${m.card.refNo}]`;
+    }
+    return `[Parking details: ${m.card.location}, ${m.card.durationLabel}, RM ${m.card.fee.toFixed(2)}]`;
+  }
+  if (m.type === "ai" && m.card?.kind === "spending_report") {
+    return `[Spending report: ${m.card.monthLabel}, total RM ${m.card.total.toFixed(2)}]`;
+  }
   return m.text;
 }
 
 function makeSimulatedTxnRef(): string {
   const n = Math.floor(100000 + Math.random() * 900000);
   return `TXN${n}`;
+}
+
+function makeSimulatedParkingRef(): string {
+  const n = Math.floor(100000 + Math.random() * 900000);
+  return `PKG${n}`;
 }
 
 function formatMessageTime(d: Date): string {
@@ -353,6 +407,261 @@ function SendMoneyReceiptCard({
   );
 }
 
+function ParkingDetectingCard({ isElderlyMode }: { isElderlyMode: boolean }) {
+  return (
+    <div className="w-full max-w-[320px] rounded-2xl border border-border/80 bg-white p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2D6CF8] text-white">
+          <MapPin className="h-5 w-5" aria-hidden />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className={`font-semibold text-foreground ${isElderlyMode ? "text-lg" : "text-base"}`}>
+            Detecting location...
+          </p>
+          <p className={`text-muted-foreground ${isElderlyMode ? "text-base" : "text-sm"}`}>
+            Getting your parking details
+          </p>
+        </div>
+      </div>
+      <div className="mt-4 space-y-3">
+        <div className="h-3 w-full animate-pulse rounded-full bg-slate-100" />
+        <div className="h-3 w-[72%] animate-pulse rounded-full bg-slate-100" />
+        <div className="h-3 w-[88%] animate-pulse rounded-full bg-slate-100" />
+      </div>
+    </div>
+  );
+}
+
+function ParkingDetailsCard({
+  location,
+  durationLabel,
+  fee,
+  isElderlyMode,
+  onPay,
+}: {
+  location: string;
+  durationLabel: string;
+  fee: number;
+  isElderlyMode: boolean;
+  onPay: () => void;
+}) {
+  return (
+    <div className="w-full max-w-[320px] rounded-2xl border border-border/80 bg-white p-4 shadow-sm">
+      <div className="flex items-center justify-between gap-3">
+        <span className={`font-bold text-foreground ${isElderlyMode ? "text-xl" : "text-2xl"}`}>Parking Details</span>
+        <button
+          type="button"
+          onClick={onPay}
+          className={`rounded-full bg-[#2D6CF8] px-5 py-2 font-semibold text-white ${isElderlyMode ? "text-base" : "text-sm"}`}
+        >
+          Pay
+        </button>
+      </div>
+      <div className="mt-3 rounded-full bg-[#EEF3FF] px-4 py-2">
+        <div className="flex items-center gap-2 text-[#2558DF]">
+          <MapPin className="h-4 w-4 shrink-0" aria-hidden />
+          <span className={`truncate font-medium ${isElderlyMode ? "text-base" : "text-sm"}`}>{location}</span>
+        </div>
+      </div>
+      <div className="mt-3 space-y-0 divide-y divide-border/70">
+        <div className="flex items-center justify-between py-3">
+          <span className={`flex items-center gap-2 text-muted-foreground ${isElderlyMode ? "text-base" : "text-sm"}`}>
+            <Clock3 className="h-4 w-4" aria-hidden />
+            Duration
+          </span>
+          <span className={`font-medium text-foreground ${isElderlyMode ? "text-lg" : "text-base"}`}>{durationLabel}</span>
+        </div>
+        <div className="flex items-center justify-between py-3">
+          <span className={`text-muted-foreground ${isElderlyMode ? "text-base" : "text-sm"}`}>Parking Fee</span>
+          <span className={`font-bold text-foreground ${isElderlyMode ? "text-xl" : "text-2xl"}`}>
+            RM {fee.toFixed(2)}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ParkingFaceVerifyCard({ isElderlyMode }: { isElderlyMode: boolean }) {
+  return (
+    <div className="relative w-full max-w-[320px] overflow-hidden rounded-2xl border border-border/80 bg-white p-6 shadow-sm">
+      <div className="flex flex-col items-center text-center">
+        <div className="relative flex h-20 w-20 items-center justify-center">
+          <span
+            className="absolute inset-0 rounded-full border-2 border-emerald-400/40 animate-ping"
+            style={{ animationDuration: "1.8s" }}
+            aria-hidden
+          />
+          <div className="relative flex h-16 w-16 items-center justify-center rounded-full bg-emerald-50 text-emerald-700 ring-2 ring-emerald-200/80">
+            <ScanFace className={`${isElderlyMode ? "h-9 w-9" : "h-8 w-8"}`} aria-hidden />
+          </div>
+        </div>
+        <p className={`mt-4 font-semibold text-foreground ${isElderlyMode ? "text-lg" : "text-base"}`}>
+          Verifying your face
+        </p>
+        <p className={`mt-1 text-muted-foreground ${isElderlyMode ? "text-sm" : "text-xs"}`}>
+          Processing your parking payment...
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function ParkingReceiptCard({
+  location,
+  durationLabel,
+  fee,
+  refNo,
+  isElderlyMode,
+  onDownload,
+}: {
+  location: string;
+  durationLabel: string;
+  fee: number;
+  refNo: string;
+  isElderlyMode: boolean;
+  onDownload: () => void;
+}) {
+  return (
+    <div className="w-full max-w-[320px] rounded-2xl border border-border/80 bg-white p-5 shadow-md">
+      <div className="flex flex-col items-center text-center">
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+          <Check className={`${isElderlyMode ? "h-8 w-8" : "h-7 w-7"} stroke-[2.5]`} aria-hidden />
+        </div>
+        <h3 className={`mt-3 font-bold text-foreground ${isElderlyMode ? "text-xl" : "text-3xl"}`}>
+          Payment Successful!
+        </h3>
+        <p className={`mt-1 text-muted-foreground ${isElderlyMode ? "text-sm" : "text-base"}`}>
+          Your parking has been paid
+        </p>
+      </div>
+
+      <div className="mt-4 space-y-0 divide-y divide-border/70">
+        <div className="flex items-center justify-between gap-2 py-3">
+          <span className="text-muted-foreground">Location</span>
+          <span className="truncate font-medium text-slate-900">{location}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2 py-3">
+          <span className="text-muted-foreground">Duration</span>
+          <span className="font-medium text-slate-900">{durationLabel}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2 py-3">
+          <span className="text-muted-foreground">Amount</span>
+          <span className="font-bold text-emerald-600">RM {fee.toFixed(2)}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2 py-3">
+          <span className="text-muted-foreground">Ref no.</span>
+          <span className="font-medium tabular-nums text-slate-600">{refNo}</span>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={onDownload}
+        className={`mt-4 flex w-full items-center justify-center gap-2 rounded-full border border-[#2D6CF8] bg-white py-2.5 font-semibold text-[#2D6CF8] transition-opacity hover:opacity-90 ${
+          isElderlyMode ? "text-base" : "text-sm"
+        }`}
+      >
+        <Download className="h-4 w-4" aria-hidden />
+        Download Receipt
+      </button>
+    </div>
+  );
+}
+
+function SpendingReportCardView({ isElderlyMode }: { isElderlyMode: boolean }) {
+  const categories = [
+    { key: "transport", label: "Transportation", value: 150, color: "#4F6BFF" },
+    { key: "food", label: "Food & Beverage", value: 190, color: "#F2A30D" },
+    { key: "grocery", label: "Grocery", value: 60, color: "#13C691" },
+    { key: "others", label: "Others", value: 60, color: "#8A63FF" },
+  ] as const;
+  const total = categories.reduce((sum, c) => sum + c.value, 0);
+  const [selectedKey, setSelectedKey] = useState<(typeof categories)[number]["key"]>("others");
+  const selected = categories.find((c) => c.key === selectedKey) ?? categories[0];
+  const selectedPercent = Math.round((selected.value / total) * 100);
+  const maxCategory = categories.reduce((best, c) => (c.value > best.value ? c : best), categories[0]);
+  const maxPercent = Math.round((maxCategory.value / total) * 100);
+
+  const radius = 42;
+  const circumference = 2 * Math.PI * radius;
+  let accPct = 0;
+
+  return (
+    <div className="w-full max-w-[360px] rounded-2xl border border-border/80 bg-white p-5 shadow-sm">
+      <div>
+        <p className={`font-bold text-foreground ${isElderlyMode ? "text-2xl" : "text-3xl"}`}>Spending Report</p>
+        <p className={`text-muted-foreground ${isElderlyMode ? "text-base" : "text-sm"}`}>This month</p>
+      </div>
+
+      <div className="mt-4 flex justify-center">
+        <div className="relative h-44 w-44">
+          <svg viewBox="0 0 100 100" className="h-full w-full -rotate-90">
+            {categories.map((c) => {
+              const pct = c.value / total;
+              const dash = pct * circumference;
+              const offset = -accPct * circumference;
+              accPct += pct;
+              const isActive = c.key === selected.key;
+              return (
+                <circle
+                  key={c.key}
+                  cx="50"
+                  cy="50"
+                  r={radius}
+                  fill="none"
+                  stroke={c.color}
+                  strokeWidth={isActive ? 18 : 16}
+                  strokeLinecap="butt"
+                  strokeDasharray={`${dash} ${circumference}`}
+                  strokeDashoffset={offset}
+                  className="cursor-pointer transition-all"
+                  onMouseEnter={() => setSelectedKey(c.key)}
+                  onClick={() => setSelectedKey(c.key)}
+                  aria-label={`${c.label} RM ${c.value}`}
+                />
+              );
+            })}
+          </svg>
+          <div className="pointer-events-none absolute inset-0 m-auto h-[108px] w-[108px] rounded-full bg-white shadow-[inset_0_0_0_1px_rgba(148,163,184,0.12)]" />
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+            <p className={`font-semibold text-foreground ${isElderlyMode ? "text-xl" : "text-3xl"}`}>{selected.label}</p>
+            <p className={`text-muted-foreground ${isElderlyMode ? "text-base" : "text-sm"}`}>
+              RM {selected.value} ({selectedPercent}%)
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+        {categories.map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            onClick={() => setSelectedKey(c.key)}
+            className={`flex items-center gap-2 rounded-md px-2 py-0.5 transition-colors ${
+              selected.key === c.key ? "bg-[#EEF3FF] text-[#5A63E9]" : "text-foreground hover:bg-slate-100"
+            }`}
+          >
+            <span className="h-3 w-3 rounded-full" style={{ backgroundColor: c.color }} />
+            {c.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4 border-t border-border/70 pt-4">
+        <div className="flex items-center justify-between">
+          <span className={`text-muted-foreground ${isElderlyMode ? "text-xl" : "text-3xl"}`}>Total Spending</span>
+          <span className={`font-bold text-foreground ${isElderlyMode ? "text-2xl" : "text-3xl"}`}>RM {total.toFixed(2)}</span>
+        </div>
+        <p className={`mt-3 text-foreground/90 ${isElderlyMode ? "text-base" : "text-sm"}`}>
+          {maxCategory.label} is your highest expense at {maxPercent}%. Consider meal prepping to save more!
+        </p>
+      </div>
+    </div>
+  );
+}
+
 async function blobToBase64(blob: Blob): Promise<string> {
   const buffer = await blob.arrayBuffer();
   const bytes = new Uint8Array(buffer);
@@ -397,6 +706,7 @@ export function AICommandCenter({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const lastSpokenAiIdRef = useRef<string | null>(null);
   const faceVerifyTimeoutsRef = useRef<Set<number>>(new Set());
+  const parkingTimeoutsRef = useRef<Set<number>>(new Set());
 
   const quickActions = [
     { label: "Send RM50 to a contact", action: "send" },
@@ -404,7 +714,7 @@ export function AICommandCenter({
     { label: "Pay electricity bill", action: "bills" },
     { label: "Pay parking", action: "parking" },
     { label: "Scan QR code", action: "scan" },
-    { label: "Check balance", action: "home" },
+    { label: "Spending Report", action: "spending-report" },
     { label: "View spending", action: "ai-insights" },
   ];
 
@@ -455,6 +765,8 @@ export function AICommandCenter({
       }
       faceVerifyTimeoutsRef.current.forEach((id) => clearTimeout(id));
       faceVerifyTimeoutsRef.current.clear();
+      parkingTimeoutsRef.current.forEach((id) => clearTimeout(id));
+      parkingTimeoutsRef.current.clear();
     };
   }, []);
 
@@ -490,6 +802,8 @@ export function AICommandCenter({
 
     const sendMoneyPreview = parseSendMoneyIntent(text);
     const keywordIntent = isSendMoneyKeywordIntent(text);
+    const parkingIntent = isParkingIntent(text);
+    const spendingReportIntent = isSpendingReportIntent(text);
     const sendMoneyCardPayload = sendMoneyPreview
       ? {
           recipient: sendMoneyPreview.recipient,
@@ -501,6 +815,38 @@ export function AICommandCenter({
             amount: 0,
           }
         : null;
+    const parkingCardPayload = parkingIntent
+      ? {
+          location: "Damansara Uptown",
+          durationLabel: "1 hour",
+          fee: 2,
+        }
+      : null;
+    const spendingReportCardPayload = spendingReportIntent
+      ? {
+          monthLabel: "This month",
+          total: 460,
+        }
+      : null;
+
+    if (spendingReportCardPayload) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `${Date.now()}-ai`,
+          type: "ai",
+          text: "",
+          timestamp: new Date(),
+          card: {
+            kind: "spending_report" as const,
+            monthLabel: spendingReportCardPayload.monthLabel,
+            total: spendingReportCardPayload.total,
+          },
+        },
+      ]);
+      setIsSending(false);
+      return;
+    }
 
     try {
       const payload: ChatMessage[] = nextMessages.map((m) => ({
@@ -509,7 +855,7 @@ export function AICommandCenter({
       }));
       const res = await sendChatMessage(payload, activeUserId);
       const aiMsgId = `${Date.now()}-ai`;
-      const replyText = sendMoneyCardPayload
+      const replyText = sendMoneyCardPayload || parkingCardPayload
         ? ""
         : (res.reply && String(res.reply).trim()) || "";
 
@@ -529,13 +875,36 @@ export function AICommandCenter({
                   phase: "preview" as const,
                 },
               }
-            : {}),
+            : parkingCardPayload
+              ? {
+                  card: {
+                    kind: "parking" as const,
+                    phase: "detecting" as const,
+                    location: parkingCardPayload.location,
+                    durationLabel: parkingCardPayload.durationLabel,
+                    fee: parkingCardPayload.fee,
+                  },
+                }
+              : {}),
         },
       ]);
+      if (parkingCardPayload) {
+        const tid = window.setTimeout(() => {
+          parkingTimeoutsRef.current.delete(tid);
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === aiMsgId && m.card?.kind === "parking" && m.card.phase === "detecting"
+                ? { ...m, card: { ...m.card, phase: "details" as const } }
+                : m,
+            ),
+          );
+        }, 1800);
+        parkingTimeoutsRef.current.add(tid);
+      }
       if (res.action === "send_money" || res.action === "pay_parking") {
         onWalletChanged?.();
       }
-      if (res.action === "pay_parking" && onNavigate) {
+      if (res.action === "pay_parking" && onNavigate && !parkingCardPayload) {
         onNavigate("parking");
       }
     } catch (error) {
@@ -558,6 +927,14 @@ export function AICommandCenter({
   };
 
   const handleQuickAction = (action: string) => {
+    if (action === "parking") {
+      void handleSend("pay parking", { displayUserText: "Pay parking" });
+      return;
+    }
+    if (action === "spending-report") {
+      void handleSend("show my spending report", { displayUserText: "Spending Report" });
+      return;
+    }
     if (onNavigate) {
       onClose();
       onNavigate(action);
@@ -595,6 +972,42 @@ export function AICommandCenter({
         id: `${Date.now()}-notify`,
         type: "ai",
         text: "Recipient notification sent (demo).",
+        timestamp: new Date(),
+      },
+    ]);
+  };
+
+  const handleParkingPay = (messageId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId && m.card?.kind === "parking" && m.card.phase === "details"
+          ? { ...m, card: { ...m.card, phase: "face_verifying" as const } }
+          : m,
+      ),
+    );
+
+    const tid = window.setTimeout(() => {
+      parkingTimeoutsRef.current.delete(tid);
+      const refNo = makeSimulatedParkingRef();
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId && m.card?.kind === "parking" && m.card.phase === "face_verifying"
+            ? { ...m, card: { ...m.card, phase: "receipt" as const, refNo } }
+            : m,
+        ),
+      );
+      onWalletChanged?.();
+    }, 2200);
+    parkingTimeoutsRef.current.add(tid);
+  };
+
+  const handleParkingReceiptDownload = () => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}-parking-receipt`,
+        type: "ai",
+        text: "Receipt downloaded (demo).",
         timestamp: new Date(),
       },
     ]);
@@ -915,6 +1328,45 @@ export function AICommandCenter({
                         {msg.text}
                       </div>
                     ) : null}
+                  </div>
+                ) : msg.type === "ai" && msg.card?.kind === "parking" ? (
+                  <div className="flex max-w-[min(100%,360px)] flex-col items-start gap-2">
+                    {msg.card.phase === "detecting" ? (
+                      <ParkingDetectingCard isElderlyMode={isElderlyMode} />
+                    ) : msg.card.phase === "details" ? (
+                      <ParkingDetailsCard
+                        location={msg.card.location}
+                        durationLabel={msg.card.durationLabel}
+                        fee={msg.card.fee}
+                        isElderlyMode={isElderlyMode}
+                        onPay={() => handleParkingPay(msg.id)}
+                      />
+                    ) : msg.card.phase === "face_verifying" ? (
+                      <ParkingFaceVerifyCard isElderlyMode={isElderlyMode} />
+                    ) : msg.card.phase === "receipt" && msg.card.refNo ? (
+                      <ParkingReceiptCard
+                        location={msg.card.location}
+                        durationLabel={msg.card.durationLabel}
+                        fee={msg.card.fee}
+                        refNo={msg.card.refNo}
+                        isElderlyMode={isElderlyMode}
+                        onDownload={handleParkingReceiptDownload}
+                      />
+                    ) : null}
+                    <p
+                      className={`pl-1 text-muted-foreground ${isElderlyMode ? "text-sm" : "text-xs"}`}
+                    >
+                      {formatMessageTime(msg.timestamp)}
+                    </p>
+                  </div>
+                ) : msg.type === "ai" && msg.card?.kind === "spending_report" ? (
+                  <div className="flex max-w-[min(100%,380px)] flex-col items-start gap-2">
+                    <SpendingReportCardView isElderlyMode={isElderlyMode} />
+                    <p
+                      className={`pl-1 text-muted-foreground ${isElderlyMode ? "text-sm" : "text-xs"}`}
+                    >
+                      {formatMessageTime(msg.timestamp)}
+                    </p>
                   </div>
                 ) : (
                   <div
